@@ -1,0 +1,15 @@
+services:
+  friday-dashboard:
+    build: .
+    container_name: friday-dashboard
+    restart: unless-stopped
+    # Secrets live in the on-box .env (chmod 600, gitignored) — never inline here.
+    env_file: .env
+    environment:
+      NODE_ENV: production
+      PORT: "3000"
+    volumes:
+      # SQLite DB (/data/friday.db) + uploaded photos (/data/photos)
+      - ./data:/data
+    ports:
+      - "3000:3000"
