@@ -30,3 +30,6 @@ next-env.d.ts
 
 # local design reference (canonical artifact lives in Claude Design)
 /design
+
+# local scratch SQLite (dev FRIDAY_DB_PATH); .db-wal/.db-shm don't match *.db
+/tmp-data
