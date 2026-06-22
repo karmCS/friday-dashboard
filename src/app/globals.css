@@ -1,0 +1,28 @@
+/* Friday Dashboard global reset + "Questism" chrome (ported from the Claude Design helmet). */
+* {
+  box-sizing: border-box;
+}
+html,
+body {
+  margin: 0;
+}
+body {
+  background: #05090e;
+  color: #cfe6f5;
+  font-family: "Barlow", system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+::-webkit-scrollbar-track {
+  background: #081420;
+}
+::-webkit-scrollbar-thumb {
+  background: #1f4a66;
+  border-radius: 6px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #2f6286;
+}

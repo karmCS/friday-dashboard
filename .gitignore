@@ -27,3 +27,6 @@ yarn-error.log*
 *.pem
 next-env.d.ts
 *.tsbuildinfo
+
+# local design reference (canonical artifact lives in Claude Design)
+/design
