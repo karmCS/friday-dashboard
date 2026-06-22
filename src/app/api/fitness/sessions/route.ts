@@ -13,12 +13,28 @@ import { getDb } from "@/lib/db";
 import { fail, ok, parseJsonBody } from "../_lib/http";
 import { asOptionalString, asPositiveInt } from "../_lib/validate";
 
+// better-sqlite3 + process.env secrets require the Node runtime (not Edge).
+export const runtime = "nodejs";
+
 interface WorkoutSessionRow {
   id: number;
   template_id: number | null;
   started_at: string;
   ended_at: string | null;
   notes: string | null;
+}
+
+/** A session enriched with the distinct muscle groups trained and its total set count. */
+interface SessionWithSummary extends WorkoutSessionRow {
+  muscle_groups: string[];
+  set_count: number;
+}
+
+/** Aggregate row from the sets→exercises join, one per session. */
+interface SessionAggRow {
+  session_id: number;
+  muscle_groups: string | null;
+  set_count: number;
 }
 
 export function GET(request: Request): Response {
@@ -35,8 +51,34 @@ export function GET(request: Request): Response {
          FROM workout_sessions
         ORDER BY started_at DESC`;
 
-  const rows = db.prepare(sql).all() as WorkoutSessionRow[];
-  return ok(rows);
+  const sessions = db.prepare(sql).all() as WorkoutSessionRow[];
+
+  // One grouped pass over all sets: distinct muscle groups + set count per session.
+  // GROUP_CONCAT(DISTINCT ...) gives a comma-joined list we split back into an array.
+  const aggRows = db
+    .prepare(
+      `SELECT ws.session_id AS session_id,
+              GROUP_CONCAT(DISTINCT e.muscle_group) AS muscle_groups,
+              COUNT(ws.id) AS set_count
+         FROM workout_sets ws
+         JOIN exercises e ON e.id = ws.exercise_id
+        GROUP BY ws.session_id`,
+    )
+    .all() as SessionAggRow[];
+
+  const aggBySession = new Map<number, SessionAggRow>(
+    aggRows.map((r) => [r.session_id, r]),
+  );
+
+  const enriched: SessionWithSummary[] = sessions.map((s) => {
+    const agg = aggBySession.get(s.id);
+    const muscleGroups = agg?.muscle_groups
+      ? agg.muscle_groups.split(",").filter((g) => g.length > 0)
+      : [];
+    return { ...s, muscle_groups: muscleGroups, set_count: agg?.set_count ?? 0 };
+  });
+
+  return ok(enriched);
 }
 
 export async function POST(request: Request): Promise<Response> {

@@ -6,8 +6,29 @@ import type { Snapshot } from "@/lib/types";
 import { NavRail } from "./NavRail";
 import { TopBar } from "./TopBar";
 import { Overview } from "./sections/Overview";
+import { InfraSection } from "./sections/InfraSection";
+import { OurFootageSection } from "./sections/OurFootageSection";
+import { FitnessSection } from "./sections/FitnessSection";
+import { TacosSection } from "./sections/TacosSection";
 import { StubSection } from "./sections/StubSection";
 import { SectionKey, SECTION_TITLES } from "./nav";
+
+function Section({ screen, snapshot, go }: { screen: SectionKey; snapshot: Snapshot; go: (k: SectionKey) => void }) {
+  switch (screen) {
+    case "overview":
+      return <Overview snapshot={snapshot} onSelect={go} />;
+    case "infra":
+      return <InfraSection infra={snapshot.infra} />;
+    case "ourfootage":
+      return <OurFootageSection footage={snapshot.our_footage} infra={snapshot.infra} />;
+    case "fitness":
+      return <FitnessSection />;
+    case "tacos":
+      return <TacosSection tacos={snapshot.tacos} />;
+    default:
+      return <StubSection title={SECTION_TITLES[screen]} />;
+  }
+}
 
 interface DashboardProps {
   snapshot: Snapshot;
@@ -48,11 +69,7 @@ export function Dashboard({ snapshot }: DashboardProps) {
         />
 
         <div style={{ flex: 1, padding: "26px 30px 44px" }}>
-          {screen === "overview" ? (
-            <Overview snapshot={snapshot} onSelect={go} />
-          ) : (
-            <StubSection title={SECTION_TITLES[screen]} />
-          )}
+          <Section screen={screen} snapshot={snapshot} go={go} />
         </div>
       </div>
     </div>

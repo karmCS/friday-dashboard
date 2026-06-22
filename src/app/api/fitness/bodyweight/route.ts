@@ -14,8 +14,14 @@ import { getDb } from "@/lib/db";
 import { fail, ok, parseJsonBody } from "../_lib/http";
 import { asIsoDate, asPositiveInt, asPositiveNumber } from "../_lib/validate";
 
+// better-sqlite3 requires the Node runtime (not Edge).
+export const runtime = "nodejs";
+
 const ALLOWED_UNITS = new Set(["lb", "kg"]);
 const DEFAULT_UNIT = "lb";
+
+/** Window length for the trailing simple moving average rendered on the trend line. */
+const MOVING_AVG_WINDOW = 7;
 
 interface BodyweightRow {
   id: number;
@@ -24,15 +30,42 @@ interface BodyweightRow {
   unit: string;
 }
 
+/** One point in the smoothed series: the date and its trailing 7-day average weight. */
+interface MovingAvgPoint {
+  date: string;
+  avg: number;
+}
+
+/** GET response: chart-ready raw entries plus a parallel 7-day moving-average series. */
+interface BodyweightResponse {
+  entries: BodyweightRow[];
+  moving_avg: MovingAvgPoint[];
+}
+
+/**
+ * Trailing simple moving average over `window` days. Rows must be ascending by date.
+ * Early points (fewer than `window` prior entries) average whatever is available so the
+ * series is the same length as `rows` and renders from the first point.
+ */
+function computeMovingAvg(rows: BodyweightRow[], window: number): MovingAvgPoint[] {
+  return rows.map((row, i) => {
+    const start = Math.max(0, i - window + 1);
+    const slice = rows.slice(start, i + 1);
+    const sum = slice.reduce((acc, r) => acc + r.weight, 0);
+    return { date: row.date, avg: Math.round((sum / slice.length) * 100) / 100 };
+  });
+}
+
 export function GET(request: Request): Response {
   const db = getDb();
   const limitParam = new URL(request.url).searchParams.get("limit");
 
+  let entries: BodyweightRow[];
   if (limitParam !== null) {
     const limit = asPositiveInt("limit", Number(limitParam));
     if ("error" in limit) return fail(400, limit.error);
     // Take the most recent N, then re-sort ascending for charting.
-    const rows = db
+    entries = db
       .prepare(
         `SELECT id, date, weight, unit FROM (
            SELECT id, date, weight, unit FROM bodyweight_log
@@ -40,13 +73,17 @@ export function GET(request: Request): Response {
          ) ORDER BY date ASC`,
       )
       .all(limit.value) as BodyweightRow[];
-    return ok(rows);
+  } else {
+    entries = db
+      .prepare(`SELECT id, date, weight, unit FROM bodyweight_log ORDER BY date ASC`)
+      .all() as BodyweightRow[];
   }
 
-  const rows = db
-    .prepare(`SELECT id, date, weight, unit FROM bodyweight_log ORDER BY date ASC`)
-    .all() as BodyweightRow[];
-  return ok(rows);
+  const response: BodyweightResponse = {
+    entries,
+    moving_avg: computeMovingAvg(entries, MOVING_AVG_WINDOW),
+  };
+  return ok(response);
 }
 
 export async function POST(request: Request): Promise<Response> {

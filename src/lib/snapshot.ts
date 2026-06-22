@@ -25,11 +25,11 @@ import type {
   DeficitApp,
   DeficitLanding,
   Fitness,
-  Infra,
   OurFootage,
   Portfolio,
   Snapshot,
   Social,
+  Tacos,
 } from "@/lib/types";
 import type {
   CrashStats,
@@ -82,13 +82,15 @@ const EMPTY_FUNNEL: FunnelStats = {
 
 const EMPTY_HEALTH: CrashStats = { crash_free_rate: null, open_issues: 0 };
 
+const EMPTY_HOST: HostMetrics = { cpu_pct: null, mem_pct: null, disk_pct: null };
+
 const EMPTY_INFRA: InfraStatus = {
   all_up: true,
   down: [],
   last_deploy: { project: null, status: null, ago_hours: null },
 };
 
-const EMPTY_HOST: HostMetrics = { cpu_pct: null, mem_pct: null, disk_pct: null };
+const EMPTY_TACOS: Tacos = { total: 0, avg_rating: null, last_spot: null, cities: 0 };
 
 const EMPTY_FITNESS = (asOf: string): Fitness => ({
   as_of: asOf,
@@ -218,6 +220,39 @@ function readFitness(asOf: string): Fitness {
   };
 }
 
+// --- Local taco summary (SQLite) ---------------------------------------------
+// Non-PII roll-up for the Overview card + headless CC. Full rows live behind /api/tacos.
+
+interface TacoSummaryRow {
+  total: number;
+  avg: number | null;
+  cities: number;
+}
+interface LastSpotRow {
+  place: string;
+}
+
+function readTacos(): Tacos {
+  const db = getDb();
+
+  const agg = db
+    .prepare(
+      `SELECT COUNT(*) AS total, AVG(rating) AS avg, COUNT(DISTINCT city) AS cities FROM tacos`,
+    )
+    .get() as TacoSummaryRow;
+
+  const last = db
+    .prepare(`SELECT place FROM tacos ORDER BY visited_at DESC, id DESC LIMIT 1`)
+    .get() as LastSpotRow | undefined;
+
+  return {
+    total: agg.total,
+    avg_rating: agg.avg !== null ? Math.round(agg.avg * 10) / 10 : null,
+    last_spot: last?.place ?? null,
+    cities: agg.cities,
+  };
+}
+
 // --- Assemblers --------------------------------------------------------------
 
 /** Map a generic Umami {@link SiteStats} onto the landing sub-object (ad spend not yet wired). */
@@ -232,13 +267,11 @@ function toLanding(site: SiteStats): DeficitLanding {
   };
 }
 
-/** Map Umami stats onto Our Footage (QR scans / submissions are app-specific, not yet wired). */
+/** Map Umami stats onto Our Footage (visitors only; up/down comes from the Kuma infra slice). */
 function toOurFootage(site: SiteStats): OurFootage {
   return {
     visitors_7d: site.visitors_7d,
     pageviews_7d: site.pageviews_7d,
-    qr_scans_7d: 0,
-    submissions_7d: 0,
   };
 }
 
@@ -286,6 +319,7 @@ export async function buildSnapshot(): Promise<Snapshot> {
     infra,
     host,
     fitness,
+    tacos,
   ] = await Promise.allSettled([
     umamiClient.getSiteStats(UMAMI_WEBSITE_IDS.deficitLanding),
     umamiClient.getSiteStats(UMAMI_WEBSITE_IDS.ourFootage),
@@ -296,11 +330,12 @@ export async function buildSnapshot(): Promise<Snapshot> {
     kumaClient.getInfraStatus(),
     beszelClient.getHostMetrics(),
     Promise.resolve().then(() => readFitness(asOf)),
+    Promise.resolve().then(() => readTacos()),
   ]);
 
-  // `host` (Beszel) is fetched for the Overview infra card but isn't part of the snapshot JSON
-  // sketch, so it's resolved (keeping one source from failing the batch) and dropped here.
-  void settled<HostMetrics>(host, EMPTY_HOST);
+  // Merge the Kuma infra status with Beszel host metrics into the full Infra slice.
+  const infraStatus = settled<InfraStatus>(infra, EMPTY_INFRA);
+  const hostMetrics = settled<HostMetrics>(host, EMPTY_HOST);
 
   return {
     as_of: asOf,
@@ -313,7 +348,8 @@ export async function buildSnapshot(): Promise<Snapshot> {
     our_footage: toOurFootage(settled<SiteStats>(ourFootageSite, EMPTY_SITE)),
     portfolio: toPortfolio(settled<SiteStats>(portfolioSite, EMPTY_SITE)),
     social: SOCIAL_PLACEHOLDER,
-    infra: settled<Infra>(infra, EMPTY_INFRA),
+    infra: { ...infraStatus, host: hostMetrics },
     fitness: settled<Fitness>(fitness, EMPTY_FITNESS(asOf)),
+    tacos: settled<Tacos>(tacos, EMPTY_TACOS),
   };
 }

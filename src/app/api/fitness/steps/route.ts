@@ -1,20 +1,26 @@
 /**
  * /api/fitness/steps
  *
- *   POST ONLY — the iOS Shortcut → Apple Health bridge. An iOS Automation reads today's step
- *   count and POSTs { date, count } here nightly. Body:
- *     { date?: ISO (default today), count, source? }
- *   One row per date (UNIQUE) → re-posting a date updates it (the nightly run is idempotent).
+ *   GET  — step-count history, oldest → newest (chart-ready). Read-only and Access-gated like
+ *          the other fitness reads, so no bearer token is required here.
+ *   POST — the iOS Shortcut → Apple Health bridge. An iOS Automation reads today's step count
+ *          and POSTs { date, count } here nightly. Body:
+ *            { date?: ISO (default today), count, source? }
+ *          One row per date (UNIQUE) → re-posting a date updates it (the nightly run is
+ *          idempotent).
  *
- * AUTH: this endpoint canNOT sit behind Cloudflare Access (a headless Shortcut can't do the
- * Access login), so it is bearer-token gated with STEPS_TOKEN. Every other fitness route is
- * Access-gated instead. See analytics-dashboard.md "Auth".
+ * AUTH: the POST endpoint canNOT sit behind Cloudflare Access (a headless Shortcut can't do
+ * the Access login), so it is bearer-token gated with STEPS_TOKEN. The GET read, like every
+ * other fitness route, is Access-gated instead. See analytics-dashboard.md "Auth".
  */
 
 import { getDb } from "@/lib/db";
 import { requireBearer } from "@/lib/auth";
 import { fail, ok, parseJsonBody } from "../_lib/http";
 import { asIsoDate, asInt, asNonEmptyString } from "../_lib/validate";
+
+// better-sqlite3 + process.env secrets require the Node runtime (not Edge).
+export const runtime = "nodejs";
 
 const DEFAULT_SOURCE = "apple-health-shortcut";
 
@@ -23,6 +29,14 @@ interface StepsRow {
   date: string;
   count: number;
   source: string;
+}
+
+export function GET(): Response {
+  const db = getDb();
+  const rows = db
+    .prepare(`SELECT id, date, count, source FROM steps_log ORDER BY date ASC`)
+    .all() as StepsRow[];
+  return ok(rows);
 }
 
 export async function POST(request: Request): Promise<Response> {

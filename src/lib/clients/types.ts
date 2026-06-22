@@ -54,10 +54,11 @@ export interface UmamiClient {
 }
 
 /**
- * Infra status surface — combines Uptime Kuma (up/down + last deploy) and is shaped to
- * drop straight into {@link Snapshot.infra}.
+ * Infra status surface from Uptime Kuma (up/down + last deploy). Host CPU/RAM/disk come
+ * separately from Beszel ({@link HostMetrics}); the aggregator merges the two into the full
+ * {@link Snapshot.infra}, so Kuma is responsible for everything *except* `host`.
  */
-export type InfraStatus = Infra;
+export type InfraStatus = Omit<Infra, "host">;
 
 /** Uptime Kuma client → the infra snapshot slice. */
 export interface KumaClient {

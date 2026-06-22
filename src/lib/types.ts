@@ -76,11 +76,15 @@ export interface DeficitLanding {
   ad_spend_7d: number;
 }
 
+/**
+ * Our Footage (our-footage.com). Deliberately minimal (decided 2026-06-21): Mark only wants
+ * "is it up, and how many visitors" — up/down comes from the {@link Infra} Kuma monitor, this
+ * slice carries the Umami visitor counts. (Earlier QR-scan / submission fields were dropped:
+ * not a real data source for this property.)
+ */
 export interface OurFootage {
   visitors_7d: number;
   pageviews_7d: number;
-  qr_scans_7d: number;
-  submissions_7d: number;
 }
 
 export interface Portfolio {
@@ -121,10 +125,19 @@ export interface InfraLastDeploy {
   ago_hours: number | null;
 }
 
+/** Host resource utilisation from Beszel (percent 0–100, null when unavailable). */
+export interface InfraHost {
+  cpu_pct: number | null;
+  mem_pct: number | null;
+  disk_pct: number | null;
+}
+
 export interface Infra {
   all_up: boolean;
   /** names of any services currently down (empty when all_up) */
   down: string[];
+  /** host CPU/RAM/disk utilisation (Beszel). Folded in here so the snapshot is self-contained. */
+  host: InfraHost;
   last_deploy: InfraLastDeploy;
 }
 
@@ -167,6 +180,22 @@ export interface Fitness {
   last_cardio_session: FitnessLastCardioSession;
 }
 
+// --- Tacos (Taco Tracker summary) --------------------------------------------
+
+/**
+ * Non-PII taco-log summary for the Overview card and headless CC. Full rows (with notes/photos)
+ * are read from `/api/tacos`; this is the at-a-glance roll-up.
+ */
+export interface Tacos {
+  total: number;
+  /** mean rating across all logged tacos (0–10), or null when none logged */
+  avg_rating: number | null;
+  /** name of the most recently visited spot, or null */
+  last_spot: string | null;
+  /** distinct cities logged */
+  cities: number;
+}
+
 // --- Top-level snapshot ------------------------------------------------------
 
 export interface Snapshot {
@@ -180,4 +209,6 @@ export interface Snapshot {
   infra: Infra;
   /** personal fitness slice (fitness-tracker.md) */
   fitness: Fitness;
+  /** personal taco-log summary (Taco Tracker) */
+  tacos: Tacos;
 }
