@@ -6,17 +6,29 @@ import type { Snapshot } from "@/lib/types";
 import { NavRail } from "./NavRail";
 import { TopBar } from "./TopBar";
 import { Overview } from "./sections/Overview";
+import { DeficitSection } from "./sections/DeficitSection";
+import { InspectorSection } from "./sections/InspectorSection";
+import { LandingSection } from "./sections/LandingSection";
+import { PortfolioSection } from "./sections/PortfolioSection";
 import { InfraSection } from "./sections/InfraSection";
 import { OurFootageSection } from "./sections/OurFootageSection";
 import { FitnessSection } from "./sections/FitnessSection";
 import { TacosSection } from "./sections/TacosSection";
-import { StubSection } from "./sections/StubSection";
+import { SocialSection } from "./sections/SocialSection";
 import { SectionKey, SECTION_TITLES } from "./nav";
 
 function Section({ screen, snapshot, go }: { screen: SectionKey; snapshot: Snapshot; go: (k: SectionKey) => void }) {
   switch (screen) {
     case "overview":
       return <Overview snapshot={snapshot} onSelect={go} />;
+    case "deficit":
+      return <DeficitSection deficit={snapshot.deficit_app} onViewAthletes={() => go("inspector")} />;
+    case "inspector":
+      return <InspectorSection />;
+    case "landing":
+      return <LandingSection landing={snapshot.deficit_landing} />;
+    case "portfolio":
+      return <PortfolioSection portfolio={snapshot.portfolio} />;
     case "infra":
       return <InfraSection infra={snapshot.infra} />;
     case "ourfootage":
@@ -25,8 +37,8 @@ function Section({ screen, snapshot, go }: { screen: SectionKey; snapshot: Snaps
       return <FitnessSection />;
     case "tacos":
       return <TacosSection tacos={snapshot.tacos} />;
-    default:
-      return <StubSection title={SECTION_TITLES[screen]} />;
+    case "social":
+      return <SocialSection />;
   }
 }
 
