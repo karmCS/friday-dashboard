@@ -7,8 +7,10 @@
  *   - /login and /api/auth/*        → the login surface itself
  *   - /api/snapshot                 → bearer-token (SNAPSHOT_TOKEN), headless Claude Code cron
  *   - /api/fitness/steps            → bearer-token (STEPS_TOKEN), iOS Shortcut bridge
+ *   - /api/fitness/cardio/ingest    → bearer-token (CARDIO_TOKEN), iOS Shortcut (Apple Health)
  * These keep their own Authorization checks (see src/lib/auth.ts) — the session gate would break
- * the machine integrations.
+ * the machine integrations. NOTE: only the /ingest SUB-path is public; GET /api/fitness/cardio
+ * (the read) stays login-gated like every other fitness read.
  *
  * Runs on the Edge runtime, so session verification uses Web Crypto only (see src/lib/session.ts).
  */
@@ -17,7 +19,12 @@ import { NextResponse, type NextRequest } from "next/server";
 import { SESSION_COOKIE, verifySessionToken } from "@/lib/session";
 
 const PUBLIC_PAGES = ["/login"];
-const PUBLIC_APIS = ["/api/auth", "/api/snapshot", "/api/fitness/steps"];
+const PUBLIC_APIS = [
+  "/api/auth",
+  "/api/snapshot",
+  "/api/fitness/steps",
+  "/api/fitness/cardio/ingest",
+];
 
 function isExempt(pathname: string): boolean {
   if (PUBLIC_PAGES.some((p) => pathname === p || pathname.startsWith(p + "/"))) return true;

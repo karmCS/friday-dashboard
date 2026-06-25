@@ -38,6 +38,7 @@ CREATE TABLE IF NOT EXISTS workout_calendar (
   label      TEXT NOT NULL,                                    -- free-text, e.g. "Full Body"
   type       TEXT NOT NULL CHECK (type IN ('lift', 'cardio', 'rest')),
   notes      TEXT,
+  external_id TEXT,                                            -- dedup key when auto-ingested (Apple Health workout uid)
   created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 CREATE INDEX IF NOT EXISTS idx_workout_calendar_date ON workout_calendar(date);
@@ -50,7 +51,7 @@ CREATE TABLE IF NOT EXISTS cardio_sessions (
   avg_hr            INTEGER,
   distance_km       REAL,
   source            TEXT NOT NULL DEFAULT 'manual' CHECK (source IN ('strava', 'manual')),
-  strava_activity_id TEXT UNIQUE,
+  strava_activity_id TEXT UNIQUE,                              -- reused as the external dedup key (Apple Health workout uid)
   logged_at         TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
@@ -128,6 +129,38 @@ export function getDb(): Database.Database {
   instance.pragma("foreign_keys = ON");
   instance.exec(SCHEMA);
 
+  // Idempotent migration: DBs created before the cardio auto-ingest lack this column.
+  // `CREATE TABLE IF NOT EXISTS` never alters an existing table, so add it explicitly.
+  ensureColumn(instance, "workout_calendar", "external_id", "external_id TEXT");
+
+  // Partial unique index → the cardio ingest's calendar insert is idempotent (a Shortcut can
+  // re-fire for the same workout) while still allowing many manual NULL-id rows. Created AFTER
+  // the column exists so it doesn't fail on an older DB that was just migrated above.
+  instance.exec(
+    `CREATE UNIQUE INDEX IF NOT EXISTS idx_workout_calendar_external
+       ON workout_calendar(external_id) WHERE external_id IS NOT NULL`,
+  );
+
   db = instance;
   return db;
+}
+
+/** Adds `column` to `table` if it isn't already present. ALTER errors on a duplicate column,
+ *  so we check PRAGMA table_info first to keep cold starts idempotent. */
+function ensureColumn(
+  instance: Database.Database,
+  table: string,
+  column: string,
+  ddl: string,
+): void {
+  // Identifiers can't be bound as SQL parameters, so they're string-interpolated below. Call
+  // sites pass literals today; this guard keeps it safe if a non-literal ever creeps in.
+  const SAFE_IDENT = /^[A-Za-z_][A-Za-z0-9_]*$/;
+  if (!SAFE_IDENT.test(table) || !SAFE_IDENT.test(column)) {
+    throw new Error(`Unsafe SQL identifier: table=${table}, column=${column}`);
+  }
+  const cols = instance.prepare(`PRAGMA table_info(${table})`).all() as { name: string }[];
+  if (!cols.some((c) => c.name === column)) {
+    instance.exec(`ALTER TABLE ${table} ADD COLUMN ${ddl}`);
+  }
 }
