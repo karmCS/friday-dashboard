@@ -25,6 +25,20 @@ export interface TacoRow {
   created_at: string;
 }
 
+/**
+ * A taco as exposed to the client. Identical to {@link TacoRow} except the on-disk
+ * `photo_path` (an absolute server path) is replaced by a `has_photo` boolean — the browser
+ * only needs to know a photo exists; it builds the serving URL from the id. Keeps the server
+ * filesystem layout out of API responses.
+ */
+export type PublicTaco = Omit<TacoRow, "photo_path"> & { has_photo: boolean };
+
+/** Project a stored row into its client-safe shape (drops the absolute photo path). */
+export function toPublicTaco(row: TacoRow): PublicTaco {
+  const { photo_path, ...rest } = row;
+  return { ...rest, has_photo: photo_path !== null };
+}
+
 /** Allowed `price_tier` values (matches the CHECK constraint in the schema). */
 export const PRICE_TIERS = ["$", "$$", "$$$"] as const;
 export type PriceTier = (typeof PRICE_TIERS)[number];

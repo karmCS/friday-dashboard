@@ -1,14 +1,19 @@
 "use client";
 
 /**
- * Shared primitives for the FITNESS section: design tokens, the response type mirrors of the
- * /api/fitness/* payloads, the typed fetch helper (narrows from `unknown`), small formatting
- * + SVG-coordinate helpers, the reduced-motion hook, and the reusable card shell.
+ * Shared primitives for the FITNESS section (calendar-based model, 2026-06-24 pivot).
  *
- * Kept separate so each FITNESS file stays focused and well under the 800-line ceiling.
+ * The section no longer logs individual sets — it is a weekly workout CALENDAR of general
+ * labels, plus bodyweight (CSV import + iOS Shortcut), steps (iOS Shortcut), and cardio
+ * (Strava). This file holds the design tokens, response-type mirrors of the /api/fitness/*
+ * payloads, the typed fetch helper (narrows from `unknown`), date + SVG-coordinate helpers,
+ * and the reusable card shell + loading skeletons.
  */
 
-import { CSSProperties, useEffect, useState } from "react";
+import { CSSProperties } from "react";
+
+import { t } from "@/components/dashboard/tokens";
+import { Skeleton } from "@/components/dashboard/ui";
 
 // --- design tokens -----------------------------------------------------------
 
@@ -16,66 +21,30 @@ export const DISPLAY = "'Black Han Sans',sans-serif";
 export const BODY = "'Barlow',sans-serif";
 export const MONO = "'JetBrains Mono',monospace";
 
-/** Emil Kowalski's expo-style ease-out for the only motion we run (card hover glow). */
-export const EASE = "cubic-bezier(0.23,1,0.32,1)";
+export const CARD_BG = "linear-gradient(160deg,#163a55,#0b2033)";
 
-const CARD_BG = "linear-gradient(160deg,#163a55,#0b2033)";
-const CARD_FRAME = "inset 0 0 0 2px rgba(150,212,236,.42)";
-const CARD_FRAME_HOVER = "inset 0 0 0 2px rgba(150,212,236,.85),0 0 26px rgba(80,200,255,.32)";
-const CARD_CLIP =
-  "polygon(0 0,calc(100% - 14px) 0,100% 14px,100% 100%,14px 100%,0 calc(100% - 14px))";
+/** Workout types (matches the DB CHECK constraint). */
+export const WORKOUT_TYPES = ["lift", "cardio", "rest"] as const;
+export type WorkoutType = (typeof WORKOUT_TYPES)[number];
 
-/** Muscle-group → color, matched to the design legend (legs/back/chest/shoulders/arms…). */
-const MUSCLE_COLORS: ReadonlyArray<{ key: string; color: string }> = [
-  { key: "legs", color: "#5fc8ff" },
-  { key: "back", color: "#9a8cff" },
-  { key: "chest", color: "#ff7ae6" },
-  { key: "shoulders", color: "#ffd36b" },
-  { key: "arms", color: "#7dffb0" },
-  { key: "core", color: "#ff9a8a" },
-];
-const FALLBACK_MUSCLE_COLORS = [
-  "#5fc8ff",
-  "#9a8cff",
-  "#ff7ae6",
-  "#ffd36b",
-  "#7dffb0",
-  "#ff9a8a",
-  "#c0d4e0",
-];
-
-/** Stable color for a muscle group, falling back to a palette slot for unknown groups. */
-export function muscleColor(group: string, index: number): string {
-  const lower = group.toLowerCase();
-  const known = MUSCLE_COLORS.find((m) => lower.startsWith(m.key) || m.key.startsWith(lower));
-  if (known) return known.color;
-  return FALLBACK_MUSCLE_COLORS[index % FALLBACK_MUSCLE_COLORS.length];
-}
+/** Per-type styling: a left-edge / chip accent color + a soft fill + a short label. */
+export const TYPE_META: Record<WorkoutType, { label: string; color: string; soft: string }> = {
+  lift: { label: "LIFT", color: "#5fc8ff", soft: "rgba(95,200,255,.16)" },
+  cardio: { label: "CARDIO", color: "#ffb454", soft: "rgba(255,180,84,.16)" },
+  rest: { label: "REST", color: "#8aa6bd", soft: "rgba(138,166,189,.14)" },
+};
 
 export const DAY_LABELS = ["MON", "TUE", "WED", "THU", "FRI", "SAT", "SUN"] as const;
-export const DAY_ACCENTS = ["#5fc8ff", "#9a8cff", "#7dffb0", "#ffd36b", "#5fc8ff", "#9a8cff", "#7dffb0"];
 
 // --- response types (mirrors of the API payloads) ----------------------------
 
-export interface SessionSummary {
+export interface CalendarEntry {
   id: number;
-  template_id: number | null;
-  started_at: string;
-  ended_at: string | null;
+  date: string; // YYYY-MM-DD
+  label: string;
+  type: WorkoutType;
   notes: string | null;
-  muscle_groups: string[];
-  set_count: number;
-}
-
-export interface CardioSession {
-  id: number;
-  activity_type: string;
-  duration_min: number;
-  avg_hr: number | null;
-  distance_km: number | null;
-  source: string;
-  strava_activity_id: string | null;
-  logged_at: string;
+  created_at: string;
 }
 
 export interface BodyweightEntry {
@@ -102,66 +71,16 @@ export interface StepsEntry {
   source: string;
 }
 
-export interface RirCompressionPoint {
-  week: string;
-  avg_rir: number;
-  set_count: number;
-}
-
-export interface WeeklyVolumeWeek {
-  week: string;
-  groups: Record<string, number>;
-  total: number;
-}
-
-export interface RepDropoffPoint {
-  set_number: number;
-  reps: number;
-}
-
-export interface RepDropoff {
-  session_id: number | null;
-  exercise_id: number | null;
-  exercise_name: string | null;
-  points: RepDropoffPoint[];
-}
-
-export interface PrEntry {
-  exercise_id: number;
-  exercise_name: string;
-  muscle_group: string;
-  best_reps: number;
-}
-
-export interface CardioHrPoint {
-  logged_at: string;
+export interface CardioSession {
+  id: number;
   activity_type: string;
-  avg_hr: number;
+  duration_min: number;
+  avg_hr: number | null;
+  distance_km: number | null;
+  source: string;
+  strava_activity_id: string | null;
+  logged_at: string;
 }
-
-export interface FitnessAnalytics {
-  rir_compression: RirCompressionPoint[];
-  weekly_volume: WeeklyVolumeWeek[];
-  rep_dropoff: RepDropoff;
-  prs: PrEntry[];
-  cardio_hr: CardioHrPoint[];
-}
-
-export interface FitnessData {
-  sessions: SessionSummary[];
-  cardio: CardioSession[];
-  bodyweight: BodyweightResponse;
-  steps: StepsEntry[];
-  analytics: FitnessAnalytics;
-}
-
-export const EMPTY_ANALYTICS: FitnessAnalytics = {
-  rir_compression: [],
-  weekly_volume: [],
-  rep_dropoff: { session_id: null, exercise_id: null, exercise_name: null, points: [] },
-  prs: [],
-  cardio_hr: [],
-};
 
 export const EMPTY_BODYWEIGHT: BodyweightResponse = { entries: [], moving_avg: [] };
 
@@ -182,23 +101,54 @@ export async function fetchData<T>(url: string, fallback: T): Promise<T> {
 
 // --- formatting helpers ------------------------------------------------------
 
-export const fmtNum = (n: number): string => n.toLocaleString("en-US");
+export { fmtNum } from "@/lib/format";
 export const round1 = (n: number): string => (Math.round(n * 10) / 10).toString();
 
-/** Weekday index Mon=0..Sun=6 from an ISO timestamp (local time). */
-export function weekdayIndex(iso: string): number {
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return -1;
-  return (d.getDay() + 6) % 7; // JS Sun=0 → Mon=0
+const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+const MONTHS_UP = MONTHS.map((m) => m.toUpperCase());
+
+// --- date helpers ------------------------------------------------------------
+
+/** YYYY-MM-DD for a Date in LOCAL time (avoids the UTC off-by-one of toISOString). */
+export function isoDate(d: Date): string {
+  const p = (n: number) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
 }
 
-/** Short label for a muscle group list, e.g. ["Chest","Shoulders"] → "chest · sho". */
-export function muscleSummary(groups: string[]): string {
-  if (groups.length === 0) return "—";
-  return groups
-    .slice(0, 3)
-    .map((g) => (g.length > 4 ? g.slice(0, 3).toLowerCase() : g.toLowerCase()))
-    .join(" · ");
+/** Parse a YYYY-MM-DD string to a LOCAL Date at midnight. */
+export function parseIso(s: string): Date {
+  const [y, m, d] = s.split("-").map(Number);
+  return new Date(y, (m ?? 1) - 1, d ?? 1);
+}
+
+export function addDays(d: Date, n: number): Date {
+  const c = new Date(d);
+  c.setDate(c.getDate() + n);
+  return c;
+}
+
+/** Monday-start week containing `d` (midnight, local). */
+export function startOfWeek(d: Date): Date {
+  const c = new Date(d.getFullYear(), d.getMonth(), d.getDate());
+  const dow = (c.getDay() + 6) % 7; // JS Sun=0 → Mon=0
+  c.setDate(c.getDate() - dow);
+  return c;
+}
+
+/** "Jun 23" (mixed case). */
+export function fmtMonthDay(d: Date): string {
+  return `${MONTHS[d.getMonth()]} ${d.getDate()}`;
+}
+
+/** "JUN" upper-case month abbreviation for a Date. */
+export function monthUpper(d: Date): string {
+  return MONTHS_UP[d.getMonth()];
+}
+
+/** Whole days between two Dates (b - a), ignoring time-of-day. */
+export function daysBetween(a: Date, b: Date): number {
+  const ms = b.getTime() - a.getTime();
+  return Math.round(ms / 86_400_000);
 }
 
 // --- generic SVG line helpers ------------------------------------------------
@@ -232,20 +182,26 @@ export function toPolyline(
 export const pointsAttr = (pts: LinePoint[]): string =>
   pts.map((p) => `${p.x},${p.y}`).join(" ");
 
-// --- reduced-motion guard ----------------------------------------------------
-
-/** Tracks the user's prefers-reduced-motion setting so we can drop transitions for them. */
-export function usePrefersReducedMotion(): boolean {
-  const [reduced, setReduced] = useState(false);
-  useEffect(() => {
-    if (typeof window === "undefined" || !window.matchMedia) return;
-    const mq = window.matchMedia("(prefers-reduced-motion: reduce)");
-    setReduced(mq.matches);
-    const onChange = (e: MediaQueryListEvent): void => setReduced(e.matches);
-    mq.addEventListener("change", onChange);
-    return () => mq.removeEventListener("change", onChange);
-  }, []);
-  return reduced;
+/**
+ * Smooth Catmull-Rom → cubic-bezier path through points (MacroFactor-style soft curve).
+ * Falls back to straight segments for < 3 points.
+ */
+export function smoothPath(pts: LinePoint[]): string {
+  if (pts.length === 0) return "";
+  if (pts.length < 3) return `M ${pts.map((p) => `${p.x} ${p.y}`).join(" L ")}`;
+  const d: string[] = [`M ${pts[0].x} ${pts[0].y}`];
+  for (let i = 0; i < pts.length - 1; i++) {
+    const p0 = pts[i - 1] ?? pts[i];
+    const p1 = pts[i];
+    const p2 = pts[i + 1];
+    const p3 = pts[i + 2] ?? p2;
+    const c1x = p1.x + (p2.x - p0.x) / 6;
+    const c1y = p1.y + (p2.y - p0.y) / 6;
+    const c2x = p2.x - (p3.x - p1.x) / 6;
+    const c2y = p2.y - (p3.y - p1.y) / 6;
+    d.push(`C ${c1x.toFixed(1)} ${c1y.toFixed(1)}, ${c2x.toFixed(1)} ${c2y.toFixed(1)}, ${p2.x} ${p2.y}`);
+  }
+  return d.join(" ");
 }
 
 // --- card shell --------------------------------------------------------------
@@ -256,22 +212,20 @@ interface CardProps {
   style?: CSSProperties;
 }
 
-/** The clip-path card frame shared across the section; hover brightens the boxShadow. */
+/**
+ * The clip-path card frame shared across the section. Hover/focus-visible lift comes from the
+ * shared `fr-card` utility (respects the global reduced-motion guard).
+ */
 export function Card({ children, flex, style }: CardProps): React.JSX.Element {
-  const [hover, setHover] = useState(false);
-  const reduced = usePrefersReducedMotion();
   return (
     <div
-      onMouseEnter={() => setHover(true)}
-      onMouseLeave={() => setHover(false)}
+      className="fr-card"
       style={{
         flex,
         background: CARD_BG,
-        clipPath: CARD_CLIP,
-        boxShadow: hover ? CARD_FRAME_HOVER : CARD_FRAME,
+        clipPath: t.clipCard,
+        boxShadow: `inset 0 0 0 2px ${t.frame}`,
         padding: "18px 20px",
-        // Motion only on a compositor-cheap prop; disabled under reduced-motion.
-        transition: reduced ? undefined : `box-shadow 200ms ${EASE}`,
         ...style,
       }}
     >
@@ -292,11 +246,11 @@ export function CardTitle({ title, sub }: { title: string; sub?: string }): Reac
         gap: 12,
       }}
     >
-      <div style={{ fontFamily: DISPLAY, fontSize: 17, color: "#eafaff", letterSpacing: ".03em" }}>
+      <div style={{ fontFamily: DISPLAY, fontSize: 17, color: t.text, letterSpacing: ".03em" }}>
         {title}
       </div>
       {sub ? (
-        <div style={{ fontFamily: MONO, fontSize: 9.5, color: "#6fa8cc", textAlign: "right" }}>{sub}</div>
+        <div style={{ fontFamily: MONO, fontSize: 9.5, color: t.textMuted, textAlign: "right" }}>{sub}</div>
       ) : null}
     </div>
   );
@@ -315,13 +269,41 @@ export function EmptyState({ label, height }: { label: string; height: number })
         fontWeight: 700,
         fontSize: 11,
         letterSpacing: ".1em",
-        color: "#3f5a6b",
+        color: t.textMuted,
         background: "rgba(8,24,38,.4)",
         borderRadius: 6,
         boxShadow: "inset 0 0 0 1px rgba(120,180,210,.12)",
+        textAlign: "center",
+        padding: "0 16px",
       }}
     >
       {label}
     </div>
+  );
+}
+
+/** Shape-matching loading filler sized like real chart content (reserves height, no shift). */
+export function SkeletonState({ height }: { height: number }): React.JSX.Element {
+  return <Skeleton height={height} radius={6} style={{ background: "rgba(8,24,38,.4)" }} />;
+}
+
+/** A full card skeleton: title row + a chart-shaped block, matching the real Card padding. */
+export function SkeletonCard({
+  flex,
+  blockHeight = 128,
+  style,
+}: {
+  flex?: number;
+  blockHeight?: number;
+  style?: CSSProperties;
+}): React.JSX.Element {
+  return (
+    <Card flex={flex} style={style}>
+      <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 10, gap: 12 }}>
+        <Skeleton width={140} height={16} />
+        <Skeleton width={90} height={10} />
+      </div>
+      <SkeletonState height={blockHeight} />
+    </Card>
   );
 }

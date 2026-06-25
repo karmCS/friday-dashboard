@@ -1,36 +1,51 @@
 "use client";
 
+import { CSSProperties } from "react";
+
+import { t, buttonReset } from "./tokens";
+import { formatSync, minutesSince } from "@/lib/format";
+
 interface TopBarProps {
   title: string;
   showBack: boolean;
   onBack: () => void;
+  /** Toggle the nav drawer (small screens only). */
+  onMenu: () => void;
   /** ISO timestamp the snapshot was generated. */
   asOf: string;
   allUp: boolean;
 }
 
-const DISPLAY = "'Black Han Sans',sans-serif";
-const MONO = "'JetBrains Mono',monospace";
+const DISPLAY = t.font.display;
+const MONO = t.font.mono;
 
-/** Format an ISO timestamp as the design's "YYYY.MM.DD // HH:MM:SS" sync stamp. */
-function formatSync(iso: string): string {
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return iso;
-  const p = (n: number) => String(n).padStart(2, "0");
-  return `${d.getFullYear()}.${p(d.getMonth() + 1)}.${p(d.getDate())} // ${p(d.getHours())}:${p(
-    d.getMinutes(),
-  )}:${p(d.getSeconds())}`;
-}
+/** Snapshots older than this read as stale. */
+const STALE_AFTER_MIN = 10;
 
-/** Sticky top bar: back-to-overview, section title, sync stamp, all-systems indicator. */
-export function TopBar({ title, showBack, onBack, asOf, allUp }: TopBarProps) {
+const iconBtn: CSSProperties = {
+  ...buttonReset,
+  fontFamily: MONO,
+  fontSize: 12,
+  color: t.accent,
+  border: "1px solid rgba(120,200,245,.35)",
+  borderRadius: 5,
+  padding: "8px 11px",
+  minHeight: 40,
+};
+
+/** Sticky top bar: menu (mobile), back-to-overview, section title, sync stamp, all-systems indicator. */
+export function TopBar({ title, showBack, onBack, onMenu, asOf, allUp }: TopBarProps) {
+  const staleMin = minutesSince(asOf);
+  const isStale = staleMin !== null && staleMin > STALE_AFTER_MIN;
+
   return (
-    <div
+    <header
       style={{
         display: "flex",
         justifyContent: "space-between",
         alignItems: "center",
-        padding: "20px 30px",
+        gap: 12,
+        padding: "16px 30px",
         borderBottom: "1px solid rgba(150,212,236,.14)",
         position: "sticky",
         top: 0,
@@ -39,53 +54,55 @@ export function TopBar({ title, showBack, onBack, asOf, allUp }: TopBarProps) {
         zIndex: 20,
       }}
     >
-      <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 14, minWidth: 0 }}>
+        <button type="button" className="fr-nav-toggle fr-pressable" onClick={onMenu} aria-label="Open sections menu" style={iconBtn}>
+          ☰
+        </button>
         {showBack && (
-          <span
-            onClick={onBack}
-            style={{
-              fontFamily: MONO,
-              fontSize: 12,
-              color: "#7fd2ff",
-              cursor: "pointer",
-              border: "1px solid rgba(120,200,245,.35)",
-              borderRadius: 5,
-              padding: "6px 11px",
-            }}
-          >
+          <button type="button" className="fr-pressable" onClick={onBack} style={iconBtn}>
             ← OVERVIEW
-          </span>
+          </button>
         )}
-        <span
+        <h1
           style={{
+            margin: 0,
             fontFamily: DISPLAY,
+            fontWeight: 400,
             fontSize: 30,
-            color: "#eafaff",
+            color: t.text,
             letterSpacing: ".03em",
             textShadow: "0 0 16px rgba(120,210,245,.45)",
+            whiteSpace: "nowrap",
+            overflow: "hidden",
+            textOverflow: "ellipsis",
           }}
         >
           {title}
-        </span>
+        </h1>
       </div>
-      <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
-        <span style={{ fontFamily: MONO, fontSize: 11, color: "#4f88a8" }}>SYNC {formatSync(asOf)}</span>
+
+      <div style={{ display: "flex", alignItems: "center", gap: 16, flex: "none" }}>
+        <span suppressHydrationWarning style={{ fontFamily: MONO, fontSize: 11, color: isStale ? t.amber : t.textMuted }}>
+          {isStale ? "STALE · " : ""}SYNC {formatSync(asOf)}
+        </span>
         <span
+          role="status"
+          className={allUp ? undefined : "fr-pulse-alert"}
           style={{
             fontFamily: DISPLAY,
             fontSize: 13,
             letterSpacing: ".08em",
-            color: allUp ? "#7dffb0" : "#ff9a8a",
+            color: allUp ? t.up : t.down,
             border: `1px solid ${allUp ? "#1e5c44" : "#5c2a2a"}`,
             background: allUp ? "rgba(70,227,160,.08)" : "rgba(227,90,70,.08)",
             padding: "6px 13px",
-            boxShadow: `0 0 16px ${allUp ? "rgba(70,227,160,.14)" : "rgba(227,90,70,.14)"}`,
-            clipPath: "polygon(0 0,100% 0,100% 100%,8px 100%,0 calc(100% - 8px))",
+            clipPath: t.clipCta,
           }}
         >
-          ◆ {allUp ? "ALL ONLINE" : "DEGRADED"}
+          <span aria-hidden>◆ </span>
+          {allUp ? "ALL ONLINE" : "DEGRADED"}
         </span>
       </div>
-    </div>
+    </header>
   );
 }

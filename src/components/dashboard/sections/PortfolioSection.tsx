@@ -2,6 +2,8 @@
 
 import { CSSProperties } from "react";
 
+import { t, tabularNum } from "@/components/dashboard/tokens";
+import { fmtNum } from "@/lib/format";
 import type { Portfolio } from "@/lib/types";
 
 /**
@@ -18,65 +20,58 @@ import type { Portfolio } from "@/lib/types";
  * Real fields render real values. Pageviews-per-visit is a safe derived value, not invented.
  */
 
-const DISPLAY = "'Black Han Sans',sans-serif";
-const BODY = "'Barlow',sans-serif";
-const MONO = "'JetBrains Mono',monospace";
-
 const TEAL_FRAME = "linear-gradient(160deg,#163a55,#0b2033)";
-const EASE = "cubic-bezier(0.23,1,0.32,1)";
-
-const fmtNum = (n: number): string => n.toLocaleString("en-US");
 
 /** A teal Questism card frame with the angled clip-path corner. */
 const card = (extra?: CSSProperties): CSSProperties => ({
   background: TEAL_FRAME,
-  clipPath:
-    "polygon(0 0,calc(100% - 14px) 0,100% 14px,100% 100%,14px 100%,0 calc(100% - 14px))",
-  boxShadow: "inset 0 0 0 2px rgba(150,212,236,.42)",
+  clipPath: t.clipCard,
+  boxShadow: `inset 0 0 0 2px ${t.frame}`,
   padding: "18px 20px",
   ...extra,
 });
 
 const kicker: CSSProperties = {
-  fontFamily: BODY,
+  fontFamily: t.font.body,
   fontWeight: 700,
   fontSize: 10,
   letterSpacing: ".14em",
-  color: "#7fb0d2",
+  color: t.textMuted,
 };
 
 const kpiNum = (color: string): CSSProperties => ({
-  fontFamily: DISPLAY,
+  fontFamily: t.font.display,
   fontSize: 40,
   lineHeight: 1,
   color,
   marginTop: 4,
+  ...tabularNum,
 });
 
 const kpiSub: CSSProperties = {
-  fontFamily: BODY,
+  fontFamily: t.font.body,
   fontWeight: 700,
   fontSize: 11,
-  color: "#7fb0d2",
+  color: t.textMuted,
   marginTop: 4,
 };
 
 const sectionTitle: CSSProperties = {
-  fontFamily: DISPLAY,
+  fontFamily: t.font.display,
   fontSize: 17,
-  color: "#eafaff",
+  color: t.text,
   letterSpacing: ".03em",
 };
 
 /** Muted "not yet wired" tag — the consistent honesty marker across placeholder regions. */
 const pendingTag: CSSProperties = {
-  fontFamily: MONO,
+  fontFamily: t.font.mono,
   fontSize: 10,
-  color: "#5d7785",
+  color: t.textDim,
   letterSpacing: ".04em",
 };
 
-/** A KPI card that brightens its frame on hover (transform/opacity-safe transition only). */
+/** A KPI card that brightens its frame on hover/focus (handled by the shared `fr-card` class). */
 function KpiCard({
   label,
   value,
@@ -92,20 +87,12 @@ function KpiCard({
 }) {
   return (
     <div
-      className="ps-card"
+      className="fr-card"
       style={card({
         flex: flex ?? 1,
         display: "flex",
         flexDirection: "column",
-        transition: `transform 160ms ${EASE}, box-shadow 160ms ${EASE}`,
       })}
-      onMouseEnter={(e) => {
-        e.currentTarget.style.boxShadow =
-          "inset 0 0 0 2px rgba(150,212,236,.7),0 0 22px rgba(80,200,255,.3)";
-      }}
-      onMouseLeave={(e) => {
-        e.currentTarget.style.boxShadow = "inset 0 0 0 2px rgba(150,212,236,.42)";
-      }}
     >
       <div style={kicker}>{label}</div>
       <div style={kpiNum(valueColor)}>{value}</div>
@@ -126,19 +113,13 @@ export function PortfolioSection({ portfolio }: { portfolio: Portfolio }) {
 
   return (
     <div style={{ maxWidth: 1180, margin: "0 auto", display: "flex", flexDirection: "column", gap: 13 }}>
-      <style>{`
-        @media (prefers-reduced-motion: reduce) {
-          .ps-card { transition: none !important; }
-        }
-      `}</style>
-
       {/* KPI strip — real values where we have them, honest placeholders where we don't. */}
-      <div style={{ display: "flex", gap: 13 }}>
+      <div className="fr-row" style={{ gap: 13 }}>
         {/* VISITORS · 7D — real. WoW comparison isn't in the snapshot. */}
         <KpiCard
           label="VISITORS · 7D"
           value={fmtNum(portfolio.visitors_7d)}
-          valueColor="#fff"
+          valueColor={t.text}
           sub={<span style={pendingTag}>WoW — · not yet wired</span>}
         />
 
@@ -146,7 +127,7 @@ export function PortfolioSection({ portfolio }: { portfolio: Portfolio }) {
         <KpiCard
           label="PAGEVIEWS · 7D"
           value={fmtNum(portfolio.pageviews_7d)}
-          valueColor="#fff"
+          valueColor={t.text}
           sub={pvPerVisit === "—" ? "NO TRAFFIC YET" : `${pvPerVisit} / VISIT`}
         />
 
@@ -154,7 +135,7 @@ export function PortfolioSection({ portfolio }: { portfolio: Portfolio }) {
         <KpiCard
           label="TOP PAGE"
           value={portfolio.top_page ?? "—"}
-          valueColor="#fff"
+          valueColor={t.text}
           sub={
             portfolio.top_page === null ? (
               <span style={pendingTag}>no page data yet</span>
@@ -168,7 +149,7 @@ export function PortfolioSection({ portfolio }: { portfolio: Portfolio }) {
         <KpiCard
           label="TOP REFERRER"
           value={portfolio.top_referrer ?? "—"}
-          valueColor="#8fe3ff"
+          valueColor={t.accent}
           sub={
             portfolio.top_referrer === null ? (
               <span style={pendingTag}>no referrer data yet</span>
@@ -181,17 +162,30 @@ export function PortfolioSection({ portfolio }: { portfolio: Portfolio }) {
 
       {/* TOP PAGES — the design listed per-page hit counts with bars. Per-page counts are NOT in
           the snapshot; only the single top_page string is. We surface that real value and mark the
-          full ranked list + counts as pending. */}
+          full ranked list + counts as a clearly pending region (no faux rank). */}
       <div style={card()}>
         <div style={{ ...sectionTitle, marginBottom: 14 }}>TOP PAGES</div>
         {portfolio.top_page === null ? (
           <div style={pendingTag}>top page — · not yet wired</div>
         ) : (
           <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-            <span style={{ flex: 1, fontFamily: BODY, fontWeight: 700, fontSize: 13, color: "#cfe2ee" }}>
+            <span style={{ flex: 1, fontFamily: t.font.body, fontWeight: 700, fontSize: 13, color: t.textBody }}>
               {portfolio.top_page}
             </span>
-            <span style={{ fontFamily: MONO, fontSize: 11, color: "#8fe3ff" }}>#1</span>
+            {/* Honest empty state: per-page ranking/counts aren't wired, so no faux "#1" rank chip. */}
+            <span
+              style={{
+                fontFamily: t.font.mono,
+                fontSize: 9,
+                letterSpacing: ".12em",
+                color: t.textDim,
+                border: `1px dashed ${t.frame}`,
+                borderRadius: 3,
+                padding: "2px 7px",
+              }}
+            >
+              PENDING
+            </span>
           </div>
         )}
         <div style={{ ...pendingTag, marginTop: 12 }}>

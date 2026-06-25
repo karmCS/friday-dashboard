@@ -5,11 +5,14 @@
  * container restarts. The DB is opened lazily on first `getDb()` call, and the schema is
  * created idempotently (`CREATE TABLE IF NOT EXISTS`) at that point.
  *
- * Tables (fitness-tracker.md data model):
- *   exercises, workout_templates, template_exercises, workout_sessions, workout_sets,
- *   cardio_sessions, bodyweight_log, steps_log
- * Plus the Taco Tracker (analytics-dashboard.md):
- *   tacos
+ * Tables:
+ *   Fitness — workout_calendar (general weekly workout labels, typed lift/cardio/rest),
+ *             cardio_sessions (Strava), bodyweight_log, steps_log
+ *   Personal logs — tacos, cafes
+ *
+ * Retired 2026-06-24 (pivot to calendar-based fitness): the granular set-logging tables
+ * (exercises, workout_templates, template_exercises, workout_sessions, workout_sets) are no
+ * longer created. Any rows in an existing DB are left in place but unused.
  */
 
 import Database from "better-sqlite3";
@@ -26,50 +29,18 @@ let db: Database.Database | null = null;
  * start. Foreign keys are declared and enforced (PRAGMA foreign_keys = ON below).
  */
 const SCHEMA = `
--- Exercise library, organized by muscle group.
-CREATE TABLE IF NOT EXISTS exercises (
-  id                INTEGER PRIMARY KEY AUTOINCREMENT,
-  name              TEXT NOT NULL,
-  muscle_group      TEXT NOT NULL,
-  secondary_muscles TEXT,
-  equipment         TEXT
-);
-
--- Named, reusable workout structures.
-CREATE TABLE IF NOT EXISTS workout_templates (
+-- Weekly workout calendar: one row per logged workout day. Stores a GENERAL label
+-- ("Upper Body", "Stationary Bike") + a coarse type, not individual exercises/sets.
+-- Multiple entries per date are allowed (e.g. a lift + a cardio on the same day).
+CREATE TABLE IF NOT EXISTS workout_calendar (
   id         INTEGER PRIMARY KEY AUTOINCREMENT,
-  name       TEXT NOT NULL,
+  date       TEXT NOT NULL,                                    -- YYYY-MM-DD
+  label      TEXT NOT NULL,                                    -- free-text, e.g. "Full Body"
+  type       TEXT NOT NULL CHECK (type IN ('lift', 'cardio', 'rest')),
+  notes      TEXT,
   created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
-
--- Ordered exercises belonging to a template, with a target set count.
-CREATE TABLE IF NOT EXISTS template_exercises (
-  id           INTEGER PRIMARY KEY AUTOINCREMENT,
-  template_id  INTEGER NOT NULL REFERENCES workout_templates(id) ON DELETE CASCADE,
-  exercise_id  INTEGER NOT NULL REFERENCES exercises(id) ON DELETE CASCADE,
-  "order"      INTEGER NOT NULL,
-  target_sets  INTEGER
-);
-
--- A logged workout session (optionally started from a template).
-CREATE TABLE IF NOT EXISTS workout_sessions (
-  id          INTEGER PRIMARY KEY AUTOINCREMENT,
-  template_id INTEGER REFERENCES workout_templates(id) ON DELETE SET NULL,
-  started_at  TEXT NOT NULL DEFAULT (datetime('now')),
-  ended_at    TEXT,
-  notes       TEXT
-);
-
--- One row per set: reps + RIR tracked individually for per-set fatigue analysis.
-CREATE TABLE IF NOT EXISTS workout_sets (
-  id          INTEGER PRIMARY KEY AUTOINCREMENT,
-  session_id  INTEGER NOT NULL REFERENCES workout_sessions(id) ON DELETE CASCADE,
-  exercise_id INTEGER NOT NULL REFERENCES exercises(id) ON DELETE CASCADE,
-  set_number  INTEGER NOT NULL,
-  reps        INTEGER NOT NULL,
-  rir         INTEGER,
-  logged_at   TEXT NOT NULL DEFAULT (datetime('now'))
-);
+CREATE INDEX IF NOT EXISTS idx_workout_calendar_date ON workout_calendar(date);
 
 -- Cardio sessions, auto-synced from Strava or entered manually.
 CREATE TABLE IF NOT EXISTS cardio_sessions (
@@ -106,6 +77,32 @@ CREATE TABLE IF NOT EXISTS tacos (
   city       TEXT NOT NULL,
   state      TEXT NOT NULL,
   taco_type  TEXT NOT NULL,
+  rating     INTEGER CHECK (rating BETWEEN 1 AND 10),
+  price_tier TEXT CHECK (price_tier IN ('$', '$$', '$$$')),
+  notes      TEXT,
+  photo_path TEXT,
+  visited_at TEXT NOT NULL DEFAULT (date('now')),
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+-- Questism BODY-stat streak tracker (one row, stat='body'). The weekly tick advances
+-- streak_weeks on consecutive S-weeks; last_s_week guards against double-counting a week.
+-- BUILDER/SYSTEM/TOTAL are computed live from upstream signals and need no persistence.
+CREATE TABLE IF NOT EXISTS grade_streaks (
+  stat         TEXT PRIMARY KEY,                                 -- 'body'
+  streak_weeks INTEGER NOT NULL DEFAULT 0,
+  last_s_week  TEXT,                                             -- ISO week, e.g. '2026-W26'
+  updated_at   TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+-- Cafe Tracker: personal cafe log. Same shape as tacos; 'order_item' is the drink/item
+-- ordered (the cafe analogue of taco_type). 'order' would collide with the SQL keyword.
+CREATE TABLE IF NOT EXISTS cafes (
+  id         INTEGER PRIMARY KEY AUTOINCREMENT,
+  place      TEXT NOT NULL,
+  city       TEXT NOT NULL,
+  state      TEXT NOT NULL,
+  order_item TEXT NOT NULL,
   rating     INTEGER CHECK (rating BETWEEN 1 AND 10),
   price_tier TEXT CHECK (price_tier IN ('$', '$$', '$$$')),
   notes      TEXT,

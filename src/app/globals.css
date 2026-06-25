@@ -1,4 +1,48 @@
-/* Friday Dashboard global reset + "Questism" chrome (ported from the Claude Design helmet). */
+/* Friday Dashboard — global tokens + chrome for the "Questism" HUD. */
+
+:root {
+  /* surfaces */
+  --bg: #05090e;
+
+  /* brand cyan (one canonical set; was 5+ drifting hexes) */
+  --accent: #7fe3ff;
+  --accent-2: #46b8ff;
+  --accent-deep: #2b8bff;
+
+  /* text — all chosen to clear WCAG AA 4.5:1 on --bg */
+  --text: #eafaff;
+  --text-body: #cfe6f5;
+  --text-muted: #9cc2da; /* labels / secondary (was #5fb8e6 ~3.9:1) */
+  --text-dim: #80a8c4; /* smallest mono labels (was #3f6f8c ~1.9:1, #345970 ~1.5:1) */
+
+  /* semantic state */
+  --up: #8dffb8;
+  --down: #ff9a8a;
+  --amber: #ffd36b;
+
+  /* frame / glow */
+  --frame: rgba(150, 212, 236, 0.5);
+  --frame-strong: rgba(150, 212, 236, 0.9);
+  --glow: rgba(80, 200, 255, 0.35);
+  --glow-soft: rgba(120, 210, 245, 0.45);
+
+  /* clip-path notch presets (apply by role) */
+  --clip-card: polygon(0 0, calc(100% - 14px) 0, 100% 14px, 100% 100%, 14px 100%, 0 calc(100% - 14px));
+  --clip-cta: polygon(0 0, 100% 0, 100% 100%, 10px 100%, 0 calc(100% - 10px));
+
+  /* motion scale */
+  --dur-fast: 120ms;
+  --dur-normal: 200ms;
+  --dur-slow: 320ms;
+  --ease: cubic-bezier(0.23, 1, 0.32, 1);
+
+  /* type — next/font sets the family vars on <html>; these are fallbacks if it didn't load */
+  --font-display: var(--font-black-han-sans, "Black Han Sans"), sans-serif;
+  --font-body: var(--font-barlow, "Barlow"), system-ui, sans-serif;
+  --font-mono: var(--font-jetbrains-mono, "JetBrains Mono"), ui-monospace, monospace;
+  --font-jp: var(--font-zen-kaku, "Zen Kaku Gothic New"), sans-serif;
+}
+
 * {
   box-sizing: border-box;
 }
@@ -7,11 +51,24 @@ body {
   margin: 0;
 }
 body {
-  background: #05090e;
-  color: #cfe6f5;
-  font-family: "Barlow", system-ui, sans-serif;
+  background: var(--bg);
+  color: var(--text-body);
+  font-family: var(--font-body);
   -webkit-font-smoothing: antialiased;
 }
+
+/* --- focus: one visible ring for every interactive element ----------------- */
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: 2px;
+}
+/* only suppress the ring for mouse users; keyboard users always get it */
+:focus:not(:focus-visible) {
+  outline: none;
+}
+
+/* --- scrollbar ------------------------------------------------------------- */
 ::-webkit-scrollbar {
   width: 10px;
   height: 10px;
@@ -25,4 +82,180 @@ body {
 }
 ::-webkit-scrollbar-thumb:hover {
   background: #2f6286;
+}
+
+/* --- skip link ------------------------------------------------------------- */
+.fr-skip-link {
+  position: absolute;
+  left: 8px;
+  top: -48px;
+  z-index: 100;
+  padding: 8px 14px;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  letter-spacing: 0.08em;
+  color: #04101a;
+  background: var(--accent);
+  border-radius: 6px;
+  text-decoration: none;
+  transition: top var(--dur-fast) var(--ease);
+}
+.fr-skip-link:focus {
+  top: 8px;
+}
+
+/* --- interactive surfaces: hover AND :focus-visible parity ----------------- */
+/* Card / panel hover lift. Was imperative onMouseEnter style mutation in ~7 files. */
+.fr-card {
+  transition: box-shadow var(--dur-normal) var(--ease), transform var(--dur-fast) var(--ease);
+}
+.fr-card:hover,
+.fr-card:focus-visible {
+  box-shadow: inset 0 0 0 2px var(--frame-strong), 0 0 26px var(--glow);
+}
+
+/* Pressable controls (buttons, chips): press + hover feel. */
+.fr-pressable {
+  transition: transform var(--dur-fast) var(--ease), box-shadow var(--dur-fast) var(--ease),
+    background var(--dur-fast) var(--ease), color var(--dur-fast) var(--ease), filter var(--dur-fast) var(--ease);
+}
+.fr-pressable:active {
+  transform: scale(0.97);
+}
+
+/* Nav rail rows. */
+.fr-nav-row {
+  transition: filter var(--dur-fast) var(--ease), color var(--dur-fast) var(--ease),
+    border-color var(--dur-fast) var(--ease);
+}
+.fr-nav-row:hover,
+.fr-nav-row:focus-visible {
+  filter: brightness(1.18);
+}
+
+/* --- responsive helpers ---------------------------------------------------- */
+/* KPI / column strips: opt into wrapping by adding this class (replaces bare display:flex). */
+.fr-row {
+  display: flex;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+
+/* Shell: rail collapses to an off-canvas drawer below the breakpoint. */
+@media (max-width: 860px) {
+  .fr-nav-rail {
+    position: fixed !important;
+    z-index: 50;
+    transform: translateX(-100%);
+    transition: transform var(--dur-normal) var(--ease);
+  }
+  .fr-nav-rail[data-open="true"] {
+    transform: translateX(0);
+  }
+  .fr-nav-scrim {
+    position: fixed;
+    inset: 0;
+    z-index: 40;
+    background: rgba(2, 8, 14, 0.6);
+  }
+  .fr-app-body {
+    padding: 16px !important;
+  }
+}
+@media (min-width: 861px) {
+  .fr-nav-toggle,
+  .fr-nav-scrim {
+    display: none !important;
+  }
+}
+
+/* --- skeleton loaders ------------------------------------------------------ */
+.fr-skel {
+  background: linear-gradient(
+    90deg,
+    rgba(31, 74, 102, 0.25) 25%,
+    rgba(63, 111, 140, 0.45) 37%,
+    rgba(31, 74, 102, 0.25) 63%
+  );
+  background-size: 400% 100%;
+  animation: fr-shimmer 1.4s ease infinite;
+}
+
+/* --- keyframes ------------------------------------------------------------- */
+@keyframes fr-section-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+@keyframes fr-card-in {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+@keyframes fr-shimmer {
+  0% {
+    background-position: 100% 0;
+  }
+  100% {
+    background-position: 0 0;
+  }
+}
+@keyframes fr-pulse-alert {
+  0% {
+    box-shadow: 0 0 0 0 rgba(255, 120, 100, 0.5);
+  }
+  100% {
+    box-shadow: 0 0 0 12px rgba(255, 120, 100, 0);
+  }
+}
+
+/* Section body re-keys on nav → re-triggers the enter animation. */
+.fr-section-enter {
+  animation: fr-section-in var(--dur-normal) var(--ease) both;
+}
+/* Staggered card reveal: set inline `--i` index on each card. */
+.fr-card-enter {
+  animation: fr-card-in var(--dur-normal) var(--ease) both;
+  animation-delay: calc(var(--i, 0) * 40ms);
+}
+.fr-pulse-alert {
+  animation: fr-pulse-alert 0.7s var(--ease) 1;
+}
+
+/* One-shot line draw-in for charts. Path uses pathLength="1" so dashoffset 1→0 reveals it
+   left-to-right regardless of length. The reduced-motion guard below snaps it to drawn. */
+@keyframes fr-draw {
+  from {
+    stroke-dashoffset: 1;
+  }
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+.fr-draw {
+  stroke-dasharray: 1;
+  stroke-dashoffset: 1;
+  animation: fr-draw 900ms var(--ease) forwards;
+}
+
+/* --- the one global reduced-motion guard ----------------------------------- */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
 }

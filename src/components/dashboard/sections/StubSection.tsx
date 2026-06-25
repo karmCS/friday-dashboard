@@ -1,5 +1,7 @@
 "use client";
 
+import { t } from "@/components/dashboard/tokens";
+
 interface StubSectionProps {
   title: string;
 }
@@ -8,6 +10,7 @@ interface StubSectionProps {
  * Placeholder for sections not yet ported in this spine pass (Deficit, Inspector, Fitness,
  * Tacos, Infra, Landing, Our Footage, Portfolio, Social). Uses the design's "OTHER" fallback
  * frame so navigation is fully wired and each lands somewhere on-brand until its real port.
+ * Reads as an honest empty/pending state — deliberately not styled like live data.
  */
 export function StubSection({ title }: StubSectionProps) {
   return (
@@ -16,20 +19,43 @@ export function StubSection({ title }: StubSectionProps) {
         maxWidth: 1100,
         margin: "0 auto",
         background: "linear-gradient(160deg,#163a55,#0b2033)",
-        clipPath:
-          "polygon(0 0,calc(100% - 22px) 0,100% 22px,100% calc(100% - 22px),calc(100% - 22px) 100%,22px 100%,0 calc(100% - 22px),0 22px)",
-        boxShadow: "inset 0 0 0 2px rgba(150,212,236,.4)",
+        clipPath: t.clipCard,
+        boxShadow: `inset 0 0 0 2px ${t.frame}`,
         padding: "34px 38px",
       }}
     >
-      <div style={{ fontFamily: "'Black Han Sans',sans-serif", fontSize: 18, color: "#7fd2ff", letterSpacing: ".1em" }}>
+      <div
+        style={{
+          display: "flex",
+          alignItems: "center",
+          gap: 12,
+          fontFamily: t.font.display,
+          fontSize: 18,
+          color: t.accent,
+          letterSpacing: ".1em",
+        }}
+      >
         {title}
+        <span
+          style={{
+            fontFamily: t.font.mono,
+            fontSize: 10,
+            letterSpacing: ".18em",
+            color: t.textMuted,
+            border: `1px solid ${t.frame}`,
+            borderRadius: 2,
+            padding: "2px 7px",
+            textTransform: "uppercase",
+          }}
+        >
+          Not Yet Wired
+        </span>
       </div>
       <div
         style={{
-          fontFamily: "'Barlow',sans-serif",
+          fontFamily: t.font.body,
           fontSize: 14,
-          color: "#8fb6d2",
+          color: t.textMuted,
           marginTop: 10,
           lineHeight: 1.6,
           maxWidth: 560,

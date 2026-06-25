@@ -2,15 +2,19 @@
  * /api/fitness/bodyweight
  *
  *   GET  — bodyweight trend, oldest → newest (chart-ready). Optional ?limit=N caps to the
- *          most recent N entries (still returned in ascending date order).
- *   POST — log/overwrite a day's bodyweight. Body: { date?: ISO (default today), weight, unit? }.
- *          One row per date (UNIQUE), so re-posting a date updates it (upsert).
+ *          most recent N entries (still returned in ascending date order). Access-gated.
+ *   POST — the iOS Shortcut → Apple Health bridge: log/overwrite a day's bodyweight. Body:
+ *          { date?: ISO (default today), weight, unit? }. One row per date (UNIQUE), so
+ *          re-posting a date updates it (upsert).
  *
- * Behind Cloudflare Access (single-user). Renders as a trend line w/ 7d moving average on
- * desktop (fitness-tracker spec).
+ * AUTH: like the steps bridge, the POST canNOT sit behind Cloudflare Access (a headless
+ * Shortcut can't do the Access login), so it is bearer-token gated with BODYWEIGHT_TOKEN.
+ * The GET read is Access-gated. Bulk in-app history loads use POST /api/fitness/bodyweight/import
+ * (CSV, Access-gated) instead. See analytics-dashboard.md "Auth".
  */
 
 import { getDb } from "@/lib/db";
+import { requireBearer } from "@/lib/auth";
 import { fail, ok, parseJsonBody } from "../_lib/http";
 import { asIsoDate, asPositiveInt, asPositiveNumber } from "../_lib/validate";
 
@@ -87,6 +91,10 @@ export function GET(request: Request): Response {
 }
 
 export async function POST(request: Request): Promise<Response> {
+  // Bearer-token gate first — fails closed if BODYWEIGHT_TOKEN is unset.
+  const unauthorized = requireBearer(request, "BODYWEIGHT_TOKEN");
+  if (unauthorized) return unauthorized;
+
   const parsed = await parseJsonBody(request);
   if ("error" in parsed) return parsed.error;
   const { body } = parsed;

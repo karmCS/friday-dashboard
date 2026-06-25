@@ -13,6 +13,7 @@
  */
 
 import { getDb } from "@/lib/db";
+import { buildGrades } from "@/lib/grades";
 
 import { umamiClient, UMAMI_WEBSITE_IDS } from "@/lib/clients/umami";
 import { kumaClient } from "@/lib/clients/kuma";
@@ -22,6 +23,7 @@ import { posthogClient } from "@/lib/clients/posthog";
 import { sentryClient } from "@/lib/clients/sentry";
 
 import type {
+  Cafes,
   DeficitApp,
   DeficitLanding,
   Fitness,
@@ -91,6 +93,7 @@ const EMPTY_INFRA: InfraStatus = {
 };
 
 const EMPTY_TACOS: Tacos = { total: 0, avg_rating: null, last_spot: null, cities: 0 };
+const EMPTY_CAFES: Cafes = { total: 0, avg_rating: null, last_spot: null, cities: 0 };
 
 const EMPTY_FITNESS = (asOf: string): Fitness => ({
   as_of: asOf,
@@ -98,8 +101,7 @@ const EMPTY_FITNESS = (asOf: string): Fitness => ({
   steps_7d_avg: null,
   lifting_sessions_7d: 0,
   cardio_sessions_7d: 0,
-  last_lifting_session: { date: null, muscle_groups: [] },
-  last_cardio_session: { date: null, activity: null, duration_min: null, avg_hr: null },
+  last_workout: { date: null, label: null, type: null },
 });
 
 /**
@@ -124,17 +126,10 @@ interface BodyweightRow {
   date: string;
   weight: number;
 }
-interface LastLiftingRow {
+interface LastWorkoutRow {
   date: string;
-}
-interface MuscleGroupRow {
-  muscle_group: string;
-}
-interface LastCardioRow {
-  date: string;
-  activity_type: string;
-  duration_min: number;
-  avg_hr: number | null;
+  label: string;
+  type: string;
 }
 interface CountRow {
   n: number;
@@ -146,6 +141,10 @@ interface AvgRow {
 function readFitness(asOf: string): Fitness {
   const db = getDb();
   const sinceIso = new Date(Date.now() - SEVEN_DAYS_MS).toISOString();
+  const sinceDate = sinceIso.slice(0, 10);
+  // cardio_sessions.logged_at is SQLite datetime ("YYYY-MM-DD HH:MM:SS"), not JS ISO. Compare in
+  // the same format or a boundary-day row (space < 'T' lexicographically) is wrongly excluded.
+  const sinceSqlite = sinceIso.replace("T", " ").slice(0, 19);
 
   const bodyweight = db
     .prepare(`SELECT date, weight FROM bodyweight_log ORDER BY date DESC LIMIT 1`)
@@ -153,47 +152,24 @@ function readFitness(asOf: string): Fitness {
 
   const stepsAvg = db
     .prepare(`SELECT AVG(count) AS avg FROM steps_log WHERE date >= ?`)
-    .get(sinceIso.slice(0, 10)) as AvgRow | undefined;
+    .get(sinceDate) as AvgRow | undefined;
 
+  // Lifting workouts logged on the calendar in the last 7 days.
   const liftCount = db
-    .prepare(`SELECT COUNT(*) AS n FROM workout_sessions WHERE started_at >= ?`)
-    .get(sinceIso) as CountRow;
+    .prepare(`SELECT COUNT(*) AS n FROM workout_calendar WHERE type = 'lift' AND date >= ?`)
+    .get(sinceDate) as CountRow;
 
+  // Cardio sessions (Strava-synced) in the last 7 days.
   const cardioCount = db
     .prepare(`SELECT COUNT(*) AS n FROM cardio_sessions WHERE logged_at >= ?`)
-    .get(sinceIso) as CountRow;
+    .get(sinceSqlite) as CountRow;
 
-  const lastLift = db
+  // Most recent workout-calendar entry (newest date, then newest insert).
+  const lastWorkout = db
     .prepare(
-      `SELECT date(started_at) AS date FROM workout_sessions ORDER BY started_at DESC LIMIT 1`,
+      `SELECT date, label, type FROM workout_calendar ORDER BY date DESC, id DESC LIMIT 1`,
     )
-    .get() as LastLiftingRow | undefined;
-
-  // Distinct muscle groups hit in the most recent lifting session.
-  let muscleGroups: string[] = [];
-  if (lastLift) {
-    const lastSessionId = db
-      .prepare(`SELECT id FROM workout_sessions ORDER BY started_at DESC LIMIT 1`)
-      .get() as { id: number } | undefined;
-    if (lastSessionId) {
-      const rows = db
-        .prepare(
-          `SELECT DISTINCT e.muscle_group AS muscle_group
-             FROM workout_sets s
-             JOIN exercises e ON e.id = s.exercise_id
-            WHERE s.session_id = ?`,
-        )
-        .all(lastSessionId.id) as MuscleGroupRow[];
-      muscleGroups = rows.map((r) => r.muscle_group).filter(Boolean);
-    }
-  }
-
-  const lastCardio = db
-    .prepare(
-      `SELECT date(logged_at) AS date, activity_type, duration_min, avg_hr
-         FROM cardio_sessions ORDER BY logged_at DESC LIMIT 1`,
-    )
-    .get() as LastCardioRow | undefined;
+    .get() as LastWorkoutRow | undefined;
 
   const stepsAvgValue =
     stepsAvg && stepsAvg.avg !== null ? Math.round(stepsAvg.avg) : null;
@@ -207,15 +183,10 @@ function readFitness(asOf: string): Fitness {
     steps_7d_avg: stepsAvgValue,
     lifting_sessions_7d: liftCount.n,
     cardio_sessions_7d: cardioCount.n,
-    last_lifting_session: {
-      date: lastLift?.date ?? null,
-      muscle_groups: muscleGroups,
-    },
-    last_cardio_session: {
-      date: lastCardio?.date ?? null,
-      activity: lastCardio?.activity_type ?? null,
-      duration_min: lastCardio?.duration_min ?? null,
-      avg_hr: lastCardio?.avg_hr ?? null,
+    last_workout: {
+      date: lastWorkout?.date ?? null,
+      label: lastWorkout?.label ?? null,
+      type: lastWorkout?.type ?? null,
     },
   };
 }
@@ -244,6 +215,40 @@ function readTacos(): Tacos {
   const last = db
     .prepare(`SELECT place FROM tacos ORDER BY visited_at DESC, id DESC LIMIT 1`)
     .get() as LastSpotRow | undefined;
+
+  return {
+    total: agg.total,
+    avg_rating: agg.avg !== null ? Math.round(agg.avg * 10) / 10 : null,
+    last_spot: last?.place ?? null,
+    cities: agg.cities,
+  };
+}
+
+// --- Local cafe summary (SQLite) ---------------------------------------------
+// Non-PII roll-up for the Overview card + headless CC. Mirrors readTacos exactly; full rows
+// live behind /api/cafes.
+
+interface CafeSummaryRow {
+  total: number;
+  avg: number | null;
+  cities: number;
+}
+interface CafeLastSpotRow {
+  place: string;
+}
+
+function readCafes(): Cafes {
+  const db = getDb();
+
+  const agg = db
+    .prepare(
+      `SELECT COUNT(*) AS total, AVG(rating) AS avg, COUNT(DISTINCT city) AS cities FROM cafes`,
+    )
+    .get() as CafeSummaryRow;
+
+  const last = db
+    .prepare(`SELECT place FROM cafes ORDER BY visited_at DESC, id DESC LIMIT 1`)
+    .get() as CafeLastSpotRow | undefined;
 
   return {
     total: agg.total,
@@ -320,6 +325,7 @@ export async function buildSnapshot(): Promise<Snapshot> {
     host,
     fitness,
     tacos,
+    cafes,
   ] = await Promise.allSettled([
     umamiClient.getSiteStats(UMAMI_WEBSITE_IDS.deficitLanding),
     umamiClient.getSiteStats(UMAMI_WEBSITE_IDS.ourFootage),
@@ -331,18 +337,45 @@ export async function buildSnapshot(): Promise<Snapshot> {
     beszelClient.getHostMetrics(),
     Promise.resolve().then(() => readFitness(asOf)),
     Promise.resolve().then(() => readTacos()),
+    Promise.resolve().then(() => readCafes()),
   ]);
 
   // Merge the Kuma infra status with Beszel host metrics into the full Infra slice.
   const infraStatus = settled<InfraStatus>(infra, EMPTY_INFRA);
   const hostMetrics = settled<HostMetrics>(host, EMPTY_HOST);
 
+  // Resolve the Deficit slices once so the grade computation reuses the same numbers the
+  // snapshot reports (no second fetch, no drift).
+  const deficitStatsR = settled<DeficitAppStats>(deficitStats, EMPTY_DEFICIT_STATS);
+  const healthR = settled<CrashStats>(health, EMPTY_HEALTH);
+
+  // Questism grades. BODY reads the local streak DB + workout calendar; BUILDER/SYSTEM are
+  // computed from the already-fetched signals. uptime_30d / open_alerts stay null until the
+  // Beszel uptime + alert sources are wired (grades.ts treats unknown telemetry optimistically).
+  const grades = buildGrades(
+    getDb(),
+    {
+      mrr: deficitStatsR.revenue.mrr_usd,
+      users: deficitStatsR.users.total,
+      crash_free: healthR.crash_free_rate,
+    },
+    {
+      services_down: infraStatus.down.length,
+      uptime_30d: null,
+      days_since_deploy:
+        infraStatus.last_deploy.ago_hours === null
+          ? null
+          : infraStatus.last_deploy.ago_hours / 24,
+      open_alerts: null,
+    },
+  );
+
   return {
     as_of: asOf,
     deficit_app: toDeficitApp(
-      settled<DeficitAppStats>(deficitStats, EMPTY_DEFICIT_STATS),
+      deficitStatsR,
       settled<FunnelStats>(funnel, EMPTY_FUNNEL),
-      settled<CrashStats>(health, EMPTY_HEALTH),
+      healthR,
     ),
     deficit_landing: toLanding(settled<SiteStats>(landingSite, EMPTY_SITE)),
     our_footage: toOurFootage(settled<SiteStats>(ourFootageSite, EMPTY_SITE)),
@@ -351,5 +384,7 @@ export async function buildSnapshot(): Promise<Snapshot> {
     infra: { ...infraStatus, host: hostMetrics },
     fitness: settled<Fitness>(fitness, EMPTY_FITNESS(asOf)),
     tacos: settled<Tacos>(tacos, EMPTY_TACOS),
+    cafes: settled<Cafes>(cafes, EMPTY_CAFES),
+    grades,
   };
 }

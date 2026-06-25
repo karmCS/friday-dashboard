@@ -16,7 +16,27 @@ import { getDb } from "@/lib/db";
 import { randomUUID } from "node:crypto";
 import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { error, json, parseId, type TacoRow } from "../shared";
+import { error, json, parseId, toPublicTaco, type TacoRow } from "../shared";
+
+export const runtime = "nodejs";
+
+/**
+ * Detect a supported image from its leading bytes (magic number), returning the canonical
+ * extension or null. The stored extension is derived from CONTENT — never from the
+ * client-supplied MIME type — so a polyglot/HTML payload mislabeled as image/jpeg can't be
+ * stored with an image extension and later served as script.
+ */
+function sniffImage(b: Buffer): string | null {
+  if (b.length >= 3 && b[0] === 0xff && b[1] === 0xd8 && b[2] === 0xff) return ".jpg";
+  if (b.length >= 8 && b[0] === 0x89 && b[1] === 0x50 && b[2] === 0x4e && b[3] === 0x47) return ".png";
+  if (b.length >= 6 && b[0] === 0x47 && b[1] === 0x49 && b[2] === 0x46 && b[3] === 0x38) return ".gif"; // "GIF8"
+  if (b.length >= 12 && b.toString("ascii", 0, 4) === "RIFF" && b.toString("ascii", 8, 12) === "WEBP") return ".webp";
+  if (b.length >= 12 && b.toString("ascii", 4, 8) === "ftyp") {
+    const brand = b.toString("ascii", 8, 12).toLowerCase();
+    if (brand.startsWith("hei") || brand.startsWith("hev") || brand.startsWith("mif") || brand.startsWith("msf")) return ".heic";
+  }
+  return null;
+}
 
 /** Photo storage dir on the mounted volume (override for local dev via FRIDAY_PHOTO_DIR). */
 const PHOTO_DIR = process.env.FRIDAY_PHOTO_DIR ?? "/data/photos";
@@ -69,15 +89,15 @@ export async function POST(request: Request): Promise<Response> {
     return error(`photo exceeds ${MAX_BYTES} bytes`, 413);
   }
 
-  const ext = ALLOWED_TYPES[photo.type];
-  if (!ext) {
+  // Cheap early reject on the declared type; the authoritative check is the content sniff below.
+  if (!ALLOWED_TYPES[photo.type]) {
     return error(
       `unsupported image type '${photo.type}'; allowed: ${Object.keys(ALLOWED_TYPES).join(", ")}`,
       415,
     );
   }
 
-  // Confirm the taco exists before writing anything to disk.
+  // Confirm the taco exists before reading/writing anything.
   let exists: { id: number } | undefined;
   try {
     exists = getDb().prepare(SELECT_SQL).get(tacoId) as { id: number } | undefined;
@@ -86,13 +106,25 @@ export async function POST(request: Request): Promise<Response> {
   }
   if (!exists) return error("taco not found", 404);
 
+  // Read the bytes and derive the stored extension from the real content (NOT the client MIME),
+  // so a mislabeled HTML/JS/polyglot payload can't be stored with an image extension.
+  let bytes: Buffer;
+  try {
+    bytes = Buffer.from(await photo.arrayBuffer());
+  } catch {
+    return error("failed to read uploaded file", 400);
+  }
+  const ext = sniffImage(bytes);
+  if (!ext) {
+    return error("file content is not a supported image (jpeg/png/webp/gif/heic)", 415);
+  }
+
   // Generate a safe filename; ignore any client-supplied name to avoid path traversal.
-  const filename = `${tacoId}-${randomUUID()}${normalizeExt(ext)}`;
+  const filename = `${tacoId}-${randomUUID()}${ext}`;
   const absPath = join(PHOTO_DIR, filename);
 
   try {
     await mkdir(PHOTO_DIR, { recursive: true });
-    const bytes = Buffer.from(await photo.arrayBuffer());
     await writeFile(absPath, bytes);
   } catch {
     return error("failed to save photo", 500);
@@ -103,13 +135,8 @@ export async function POST(request: Request): Promise<Response> {
       .prepare(UPDATE_PHOTO_SQL)
       .get({ id: tacoId, photo_path: absPath }) as TacoRow | undefined;
     if (!updated) return error("taco not found", 404);
-    return json({ taco: updated });
+    return json({ taco: toPublicTaco(updated) });
   } catch {
     return error("failed to record photo path", 500);
   }
-}
-
-/** Guards against an accidental extension without a leading dot. */
-function normalizeExt(ext: string): string {
-  return ext.startsWith(".") ? ext : `.${ext}`;
 }

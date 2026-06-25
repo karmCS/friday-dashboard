@@ -33,3 +33,9 @@ next-env.d.ts
 
 # local scratch SQLite (dev FRIDAY_DB_PATH); .db-wal/.db-shm don't match *.db
 /tmp-data
+
+# local Claude Code agent state (worktrees, settings, memory)
+/.claude
+
+# crash artifacts
+*.stackdump

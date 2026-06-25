@@ -1,23 +1,10 @@
 "use client";
 
-import { CSSProperties } from "react";
+import { CSSProperties, useEffect, useState } from "react";
 
+import { t, tabularNum } from "@/components/dashboard/tokens";
+import { fmtNum, fmtPct } from "@/lib/format";
 import type { Infra } from "@/lib/types";
-
-const DISPLAY = "'Black Han Sans',sans-serif";
-const BODY = "'Barlow',sans-serif";
-const MONO = "'JetBrains Mono',monospace";
-
-// Emil-style craft: a single custom ease + short, transform/opacity-only transitions.
-const EASE = "cubic-bezier(0.23,1,0.32,1)";
-const HOVER_TRANSITION = `box-shadow 180ms ${EASE}, transform 180ms ${EASE}`;
-
-// Colour tokens (matches the Questism INFRA palette in design/Friday.dc.html).
-const UP = "#7dffb0";
-const DOWN = "#ff9a8a";
-const AMBER = "#ffd36b";
-const INK = "#eafaff";
-const SUBTLE = "#7fb0d2";
 
 /** Soft cap above which a host-utilisation bar reads as "hot" (amber, not green). */
 const HOT_PCT = 60;
@@ -64,28 +51,29 @@ function uptimeLabel(agoHours: number | null): string {
 const cardFrame = (clip: number): CSSProperties => ({
   background: "linear-gradient(160deg,#163a55,#0b2033)",
   clipPath: `polygon(0 0,calc(100% - ${clip}px) 0,100% ${clip}px,100% 100%,${clip}px 100%,0 calc(100% - ${clip}px))`,
-  boxShadow: "inset 0 0 0 2px rgba(150,212,236,.42)",
+  boxShadow: `inset 0 0 0 2px ${t.frame}`,
   padding: "18px 20px",
 });
 
 const kpiLabel: CSSProperties = {
-  fontFamily: BODY,
+  fontFamily: t.font.body,
   fontWeight: 700,
   fontSize: 10,
   letterSpacing: ".14em",
-  color: SUBTLE,
+  color: t.textMuted,
 };
 
 const kpiBig = (color: string): CSSProperties => ({
-  fontFamily: DISPLAY,
+  fontFamily: t.font.display,
   fontSize: 42,
   lineHeight: 1,
   color,
   marginTop: 4,
+  ...tabularNum,
 });
 
 const kpiSub = (color: string): CSSProperties => ({
-  fontFamily: BODY,
+  fontFamily: t.font.body,
   fontWeight: 700,
   fontSize: 11,
   color,
@@ -93,9 +81,9 @@ const kpiSub = (color: string): CSSProperties => ({
 });
 
 const cardTitle: CSSProperties = {
-  fontFamily: DISPLAY,
+  fontFamily: t.font.display,
   fontSize: 18,
-  color: INK,
+  color: t.text,
   letterSpacing: ".03em",
 };
 
@@ -110,7 +98,7 @@ function KpiCard({ label, value, valueColor, sub, subColor }: {
   subColor: string;
 }) {
   return (
-    <div style={{ flex: 1, ...cardFrame(12), padding: "16px 18px" }}>
+    <div className="fr-card" style={{ flex: 1, ...cardFrame(12), padding: "16px 18px" }}>
       <div style={kpiLabel}>{label}</div>
       <div style={kpiBig(valueColor)}>{value}</div>
       <div style={kpiSub(subColor)}>{sub}</div>
@@ -120,9 +108,10 @@ function KpiCard({ label, value, valueColor, sub, subColor }: {
 
 /** A single service row: status dot + name + UP/DOWN badge. */
 function ServiceRow({ name, down }: { name: string; down: boolean }) {
-  const color = down ? DOWN : UP;
+  const color = down ? t.down : t.up;
   return (
     <div
+      className="fr-card"
       style={{
         display: "flex",
         alignItems: "center",
@@ -131,16 +120,10 @@ function ServiceRow({ name, down }: { name: string; down: boolean }) {
         boxShadow: "inset 0 0 0 1px rgba(120,180,210,.2)",
         borderRadius: 7,
         padding: "11px 14px",
-        transition: HOVER_TRANSITION,
-      }}
-      onMouseEnter={(e) => {
-        e.currentTarget.style.boxShadow = `inset 0 0 0 1px ${color}55, 0 0 14px ${color}33`;
-      }}
-      onMouseLeave={(e) => {
-        e.currentTarget.style.boxShadow = "inset 0 0 0 1px rgba(120,180,210,.2)";
       }}
     >
       <span
+        aria-hidden
         style={{
           width: 8,
           height: 8,
@@ -150,10 +133,10 @@ function ServiceRow({ name, down }: { name: string; down: boolean }) {
           flexShrink: 0,
         }}
       />
-      <span style={{ flex: 1, fontFamily: DISPLAY, fontSize: 15, color: "#dceef2" }}>{name}</span>
+      <span style={{ flex: 1, fontFamily: t.font.display, fontSize: 15, color: "#dceef2" }}>{name}</span>
       <span
         style={{
-          fontFamily: BODY,
+          fontFamily: t.font.body,
           fontWeight: 800,
           fontSize: 10,
           color,
@@ -169,13 +152,25 @@ function ServiceRow({ name, down }: { name: string; down: boolean }) {
   );
 }
 
-/** A labelled host-utilisation bar (Beszel). null → "—" label + empty track. */
+/**
+ * A labelled host-utilisation bar (Beszel). null → "—" label + empty track.
+ * The fill animates via transform: scaleX (transform-origin:left) — mounted at
+ * scale 0 then set to the real value after first paint so it grows on load.
+ */
 function HostBar({ label, pct }: { label: string; pct: number | null }) {
   const has = pct !== null;
   const hot = has && pct > HOT_PCT;
-  const valueColor = !has ? SUBTLE : hot ? AMBER : UP;
-  const fill = has ? `linear-gradient(90deg,${hot ? "#ffb84d" : "#46d39a"},${hot ? AMBER : UP})` : "transparent";
+  const valueColor = !has ? t.textMuted : hot ? t.amber : t.up;
+  const fill = has ? `linear-gradient(90deg,${hot ? "#ffb84d" : "#46d39a"},${hot ? "#ffd36b" : "#7dffb0"})` : "transparent";
   const glow = has ? `0 0 10px ${hot ? "rgba(255,190,60,.5)" : "rgba(80,255,160,.5)"}` : "none";
+  const target = has ? Math.max(0, Math.min(100, pct)) / 100 : 0;
+
+  // One-shot: mount at scale 0, then animate to target after first paint.
+  const [grown, setGrown] = useState(false);
+  useEffect(() => {
+    const id = requestAnimationFrame(() => setGrown(true));
+    return () => cancelAnimationFrame(id);
+  }, []);
 
   return (
     <div>
@@ -183,14 +178,14 @@ function HostBar({ label, pct }: { label: string; pct: number | null }) {
         style={{
           display: "flex",
           justifyContent: "space-between",
-          fontFamily: BODY,
+          fontFamily: t.font.body,
           fontWeight: 700,
           fontSize: 12,
           marginBottom: 6,
         }}
       >
-        <span style={{ color: "#9fcbe4" }}>{label}</span>
-        <span style={{ color: valueColor }}>{has ? `${Math.round(pct)}%` : "—"}</span>
+        <span style={{ color: t.textMuted }}>{label}</span>
+        <span style={{ color: valueColor, ...tabularNum }}>{has ? fmtPct(Math.round(pct)) : "—"}</span>
       </div>
       <div
         style={{
@@ -203,11 +198,13 @@ function HostBar({ label, pct }: { label: string; pct: number | null }) {
       >
         <div
           style={{
-            width: has ? `${Math.max(0, Math.min(100, pct))}%` : "0%",
+            width: "100%",
             height: "100%",
             background: fill,
             boxShadow: glow,
-            transition: `width 220ms ${EASE}`,
+            transformOrigin: "left",
+            transform: `scaleX(${grown ? target : 0})`,
+            transition: `transform ${t.dur.normal} ${t.ease}`,
           }}
         />
       </div>
@@ -227,11 +224,11 @@ function CpuSparkline() {
     <div style={cardFrame(14)}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 12 }}>
         <div style={{ ...cardTitle, fontSize: 16 }}>CPU · LAST 24H</div>
-        <div style={{ fontFamily: MONO, fontSize: 10, color: "#6fa8cc" }}>SAMPLE · NO LIVE HISTORY YET</div>
+        <div style={{ fontFamily: t.font.mono, fontSize: 10, color: t.textDim }}>SAMPLE · NO LIVE HISTORY YET</div>
       </div>
       <svg viewBox="0 0 1080 110" style={{ width: "100%", height: 80, display: "block" }} aria-label="Sample 24h CPU sparkline (placeholder)">
-        <polyline points={points} fill="none" stroke="#5fc8ff" strokeWidth={2} strokeLinejoin="round" opacity={0.55} />
-        <polygon points={`${points} 1080,110 0,110`} fill="#5fc8ff" opacity={0.05} />
+        <polyline points={points} fill="none" stroke={t.accent} strokeWidth={2} strokeLinejoin="round" opacity={0.55} />
+        <polygon points={`${points} 1080,110 0,110`} fill={t.accent} opacity={0.05} />
       </svg>
     </div>
   );
@@ -239,7 +236,7 @@ function CpuSparkline() {
 
 // --- main --------------------------------------------------------------------
 
-export function InfraSection({ infra }: { infra: import("@/lib/types").Infra }) {
+export function InfraSection({ infra }: { infra: Infra }) {
   // Compute per-service status, then derive the strip metrics from it.
   const services = SERVICES.map((name) => ({ name, down: isServiceDown(name, infra.down) }));
   const total = services.length;
@@ -248,7 +245,7 @@ export function InfraSection({ infra }: { infra: import("@/lib/types").Infra }) 
   const allOnline = infra.all_up && downCount === 0;
 
   const stateLabel = allOnline ? "ALL ONLINE" : "DEGRADED";
-  const stateColor = allOnline ? UP : DOWN;
+  const stateColor = allOnline ? t.up : t.down;
   const incidents = infra.down.length;
 
   const host = infra.host;
@@ -257,11 +254,11 @@ export function InfraSection({ infra }: { infra: import("@/lib/types").Infra }) 
   return (
     <div data-infra style={{ maxWidth: 1180, margin: "0 auto", display: "flex", flexDirection: "column", gap: 13 }}>
       {/* KPI strip */}
-      <div style={{ display: "flex", gap: 13 }}>
+      <div className="fr-row" style={{ gap: 13 }}>
         <KpiCard
           label="SERVICES"
           value={`${upCount}/${total}`}
-          valueColor={allOnline ? UP : AMBER}
+          valueColor={allOnline ? t.up : t.amber}
           sub={allOnline ? "● ALL ONLINE" : `● ${downCount} DOWN`}
           subColor={stateColor}
         />
@@ -270,21 +267,21 @@ export function InfraSection({ infra }: { infra: import("@/lib/types").Infra }) 
           value={stateLabel}
           valueColor={stateColor}
           sub={allOnline ? "NOMINAL" : "ATTENTION"}
-          subColor={SUBTLE}
+          subColor={t.textMuted}
         />
         <KpiCard
           label="UPTIME"
           value={uptimeLabel(deploy.ago_hours)}
-          valueColor={INK}
+          valueColor={t.text}
           sub="SINCE LAST DEPLOY"
-          subColor={SUBTLE}
+          subColor={t.textMuted}
         />
         <KpiCard
           label="INCIDENTS"
-          value={String(incidents)}
-          valueColor={incidents === 0 ? UP : DOWN}
+          value={fmtNum(incidents)}
+          valueColor={incidents === 0 ? t.up : t.down}
           sub={incidents === 0 ? "NONE ACTIVE" : "ACTIVE NOW"}
-          subColor={incidents === 0 ? UP : DOWN}
+          subColor={incidents === 0 ? t.up : t.down}
         />
       </div>
 
@@ -317,10 +314,10 @@ export function InfraSection({ infra }: { infra: import("@/lib/types").Infra }) 
               padding: "10px 12px",
             }}
           >
-            <div style={{ fontFamily: DISPLAY, fontSize: 15, color: "#8fe3ff", lineHeight: 1 }}>
+            <div style={{ fontFamily: t.font.display, fontSize: 15, color: t.accent2, lineHeight: 1 }}>
               {deploy.project ?? "—"}
             </div>
-            <div style={{ fontFamily: BODY, fontWeight: 700, fontSize: 8.5, letterSpacing: ".08em", color: SUBTLE, marginTop: 4 }}>
+            <div style={{ fontFamily: t.font.body, fontWeight: 700, fontSize: 8.5, letterSpacing: ".08em", color: t.textMuted, marginTop: 4 }}>
               LAST DEPLOY · {(deploy.status ?? "—").toUpperCase()}
               {deploy.ago_hours !== null ? ` · ${uptimeLabel(deploy.ago_hours)} AGO` : ""}
             </div>
@@ -330,13 +327,6 @@ export function InfraSection({ infra }: { infra: import("@/lib/types").Infra }) 
 
       {/* 24h CPU sparkline (sample placeholder) */}
       <CpuSparkline />
-
-      {/* Honour reduced-motion: kill the bar/hover transitions. */}
-      <style>{`
-        @media (prefers-reduced-motion: reduce) {
-          [data-infra] * { transition: none !important; }
-        }
-      `}</style>
     </div>
   );
 }

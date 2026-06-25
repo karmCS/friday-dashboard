@@ -5,6 +5,7 @@ export type SectionKey =
   | "inspector"
   | "fitness"
   | "tacos"
+  | "cafes"
   | "infra"
   | "landing"
   | "ourfootage"
@@ -22,6 +23,7 @@ export const NAV_ITEMS: ReadonlyArray<{ key: SectionKey; label: string }> = [
   { key: "infra", label: "INFRA" },
   { key: "fitness", label: "FITNESS" },
   { key: "tacos", label: "TACOS" },
+  { key: "cafes", label: "CAFES" },
 ];
 
 /** Top-bar title per section. */
@@ -31,6 +33,7 @@ export const SECTION_TITLES: Record<SectionKey, string> = {
   inspector: "ATHLETE INSPECTOR",
   fitness: "FITNESS",
   tacos: "TACOS",
+  cafes: "CAFES",
   infra: "INFRA",
   landing: "LANDING",
   ourfootage: "OUR FOOTAGE",

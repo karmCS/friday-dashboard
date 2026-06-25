@@ -2,6 +2,8 @@
 
 import { CSSProperties } from "react";
 
+import { t, tabularNum } from "@/components/dashboard/tokens";
+import { fmtNum } from "@/lib/format";
 import type { Infra, OurFootage } from "@/lib/types";
 
 /**
@@ -17,32 +19,24 @@ import type { Infra, OurFootage } from "@/lib/types";
  * (not a real data source for this property), so none of that is rendered here.
  */
 
-const DISPLAY = "'Black Han Sans',sans-serif";
-const BODY = "'Barlow',sans-serif";
-const MONO = "'JetBrains Mono',monospace";
-
 // Questism teal frame, shared by both panels.
 const TEAL_FRAME = "linear-gradient(160deg,#163a55,#0b2033)";
-const EASE = "cubic-bezier(0.23,1,0.32,1)";
-
-const fmtNum = (n: number): string => n.toLocaleString("en-US");
 
 /** A teal Questism card frame with the angled clip-path corner. */
 const card = (extra?: CSSProperties): CSSProperties => ({
   background: TEAL_FRAME,
-  clipPath:
-    "polygon(0 0,calc(100% - 14px) 0,100% 14px,100% 100%,14px 100%,0 calc(100% - 14px))",
-  boxShadow: "inset 0 0 0 2px rgba(150,212,236,.42)",
+  clipPath: t.clipCard,
+  boxShadow: `inset 0 0 0 2px ${t.frame}`,
   padding: "26px 28px",
   ...extra,
 });
 
 const kicker: CSSProperties = {
-  fontFamily: BODY,
+  fontFamily: t.font.body,
   fontWeight: 700,
   fontSize: 10,
   letterSpacing: ".14em",
-  color: "#7fb0d2",
+  color: t.textMuted,
 };
 
 interface OurFootageSectionProps {
@@ -58,7 +52,7 @@ export function OurFootageSection({ footage, infra }: OurFootageSectionProps) {
   // DOWN if any currently-down service name mentions "footage" (case-insensitive), else UP.
   const isDown = infra.down.some((name) => /footage/i.test(name));
 
-  const statusColor = isDown ? "#ff9a8a" : "#7dffb0";
+  const statusColor = isDown ? t.down : t.up;
   const statusGlow = isDown ? "rgba(255,120,100,.55)" : "rgba(80,255,160,.55)";
   const statusLabel = isDown ? "DOWN" : "ONLINE";
   const statusSub = isDown ? "our-footage.com is unreachable" : "our-footage.com is reachable";
@@ -68,28 +62,12 @@ export function OurFootageSection({ footage, infra }: OurFootageSectionProps) {
 
   return (
     <div style={{ maxWidth: 1180, margin: "0 auto", display: "flex", flexDirection: "column", gap: 13 }}>
-      <style>{`
-        @media (prefers-reduced-motion: reduce) {
-          .ofs-panel { transition: none !important; }
-        }
-      `}</style>
-
       {/* STATUS — the headline answer: up or down. */}
       <div
-        className="ofs-panel"
-        style={card({
-          display: "flex",
-          alignItems: "center",
-          gap: 22,
-          transition: `transform 180ms ${EASE}, box-shadow 180ms ${EASE}`,
-        })}
-        onMouseEnter={(e) => {
-          e.currentTarget.style.boxShadow = `inset 0 0 0 2px rgba(150,212,236,.7),0 0 26px ${statusGlow}`;
-        }}
-        onMouseLeave={(e) => {
-          e.currentTarget.style.boxShadow = "inset 0 0 0 2px rgba(150,212,236,.42)";
-        }}
+        className="fr-card"
+        style={card({ display: "flex", alignItems: "center", gap: 22 })}
       >
+        {/* Decorative state glyph — meaning carried by the adjacent ONLINE/DOWN text + color. */}
         <span
           aria-hidden="true"
           style={{
@@ -105,7 +83,7 @@ export function OurFootageSection({ footage, infra }: OurFootageSectionProps) {
           <div style={kicker}>OUR-FOOTAGE.COM · STATUS</div>
           <div
             style={{
-              fontFamily: DISPLAY,
+              fontFamily: t.font.display,
               fontSize: 56,
               lineHeight: 0.95,
               color: statusColor,
@@ -117,44 +95,53 @@ export function OurFootageSection({ footage, infra }: OurFootageSectionProps) {
           </div>
         </div>
         <div style={{ textAlign: "right" }}>
-          <div style={{ fontFamily: MONO, fontSize: 11, color: "#7fb0d2" }}>{statusSub}</div>
-          <div style={{ fontFamily: MONO, fontSize: 10, color: "#5d7785", marginTop: 5 }}>
-            {isDown ? "VIA KUMA MONITOR" : "ALL MONITORS ✓"}
+          <div style={{ fontFamily: t.font.mono, fontSize: 11, color: t.textMuted }}>{statusSub}</div>
+          <div style={{ fontFamily: t.font.mono, fontSize: 10, color: t.textDim, marginTop: 5 }}>
+            {isDown ? "VIA KUMA MONITOR" : (
+              <>
+                ALL MONITORS <span aria-hidden="true">✓</span>
+              </>
+            )}
           </div>
         </div>
       </div>
 
       {/* VISITORS — the only other thing Mark wants. */}
       <div style={{ display: "flex", gap: 13 }}>
-        <div
-          className="ofs-panel"
-          style={card({
-            flex: 1.4,
-            transition: `transform 180ms ${EASE}, box-shadow 180ms ${EASE}`,
-          })}
-          onMouseEnter={(e) => {
-            e.currentTarget.style.boxShadow =
-              "inset 0 0 0 2px rgba(150,212,236,.7),0 0 22px rgba(80,200,255,.3)";
-          }}
-          onMouseLeave={(e) => {
-            e.currentTarget.style.boxShadow = "inset 0 0 0 2px rgba(150,212,236,.42)";
-          }}
-        >
+        <div className="fr-card" style={card({ flex: 1.4 })}>
           <div style={kicker}>VISITORS · 7D</div>
-          <div style={{ fontFamily: DISPLAY, fontSize: 80, lineHeight: 1, color: "#fff", marginTop: 6 }}>
+          <div
+            style={{
+              fontFamily: t.font.display,
+              fontSize: 80,
+              lineHeight: 1,
+              color: t.text,
+              marginTop: 6,
+              ...tabularNum,
+            }}
+          >
             {fmtNum(footage.visitors_7d)}
           </div>
-          <div style={{ fontFamily: BODY, fontWeight: 700, fontSize: 12, color: "#7fb0d2", marginTop: 6 }}>
+          <div style={{ fontFamily: t.font.body, fontWeight: 700, fontSize: 12, color: t.textMuted, marginTop: 6 }}>
             UNIQUE VISITORS · LAST 7 DAYS
           </div>
         </div>
 
         <div style={card({ flex: 1, display: "flex", flexDirection: "column" })}>
           <div style={kicker}>PAGEVIEWS · 7D</div>
-          <div style={{ fontFamily: DISPLAY, fontSize: 56, lineHeight: 1, color: "#8fe3ff", marginTop: 6 }}>
+          <div
+            style={{
+              fontFamily: t.font.display,
+              fontSize: 56,
+              lineHeight: 1,
+              color: t.accent,
+              marginTop: 6,
+              ...tabularNum,
+            }}
+          >
             {fmtNum(footage.pageviews_7d)}
           </div>
-          <div style={{ fontFamily: BODY, fontWeight: 700, fontSize: 11, color: "#7fb0d2", marginTop: "auto", paddingTop: 12 }}>
+          <div style={{ fontFamily: t.font.body, fontWeight: 700, fontSize: 11, color: t.textMuted, marginTop: "auto", paddingTop: 12 }}>
             {pvPerVisit === "—" ? "NO TRAFFIC YET" : `${pvPerVisit} / VISIT`}
           </div>
         </div>

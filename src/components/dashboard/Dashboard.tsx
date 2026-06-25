@@ -1,10 +1,11 @@
 "use client";
 
-import { useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 import type { Snapshot } from "@/lib/types";
 import { NavRail } from "./NavRail";
 import { TopBar } from "./TopBar";
+import { SkipLink, srOnly } from "./ui";
 import { Overview } from "./sections/Overview";
 import { DeficitSection } from "./sections/DeficitSection";
 import { InspectorSection } from "./sections/InspectorSection";
@@ -14,6 +15,7 @@ import { InfraSection } from "./sections/InfraSection";
 import { OurFootageSection } from "./sections/OurFootageSection";
 import { FitnessSection } from "./sections/FitnessSection";
 import { TacosSection } from "./sections/TacosSection";
+import { CafesSection } from "./sections/CafesSection";
 import { SocialSection } from "./sections/SocialSection";
 import { SectionKey, SECTION_TITLES } from "./nav";
 
@@ -37,6 +39,8 @@ function Section({ screen, snapshot, go }: { screen: SectionKey; snapshot: Snaps
       return <FitnessSection />;
     case "tacos":
       return <TacosSection tacos={snapshot.tacos} />;
+    case "cafes":
+      return <CafesSection cafes={snapshot.cafes} />;
     case "social":
       return <SocialSection />;
   }
@@ -46,22 +50,61 @@ interface DashboardProps {
   snapshot: Snapshot;
 }
 
+const isSectionKey = (v: string): v is SectionKey => Object.prototype.hasOwnProperty.call(SECTION_TITLES, v);
+
+/** Read the active section from the URL hash (e.g. "#/fitness"), falling back to overview. */
+function screenFromHash(): SectionKey {
+  if (typeof window === "undefined") return "overview";
+  const raw = window.location.hash.replace(/^#\/?/, "");
+  return isSectionKey(raw) ? raw : "overview";
+}
+
 /**
- * Client shell — the Claude Design SPA ported to React. Holds the active-section state,
- * renders the nav rail + top bar, and switches the body. Overview is wired to the live
- * snapshot; the other sections are stubbed pending their own port passes.
+ * Client shell — the "Questism" SPA. Section state is driven by the URL hash so Back/Forward,
+ * refresh, and deep links all work; on each switch we move focus to <main> and announce the
+ * new section to assistive tech. Below 860px the rail collapses to an off-canvas drawer.
  */
 export function Dashboard({ snapshot }: DashboardProps) {
   const [screen, setScreen] = useState<SectionKey>("overview");
+  const [navOpen, setNavOpen] = useState(false);
+  const mainRef = useRef<HTMLElement>(null);
+  const didMount = useRef(false);
+  const scrollMemory = useRef<Partial<Record<SectionKey, number>>>({});
 
-  const go = (key: SectionKey) => {
-    setScreen(key);
-    if (typeof window !== "undefined") window.scrollTo(0, 0);
-  };
+  // Seed from the hash on mount, and keep state in sync with Back/Forward.
+  useEffect(() => {
+    setScreen(screenFromHash());
+    const onPop = () => setScreen(screenFromHash());
+    window.addEventListener("popstate", onPop);
+    window.addEventListener("hashchange", onPop);
+    return () => {
+      window.removeEventListener("popstate", onPop);
+      window.removeEventListener("hashchange", onPop);
+    };
+  }, []);
+
+  const go = useCallback(
+    (key: SectionKey) => {
+      scrollMemory.current[screen] = window.scrollY;
+      setNavOpen(false);
+      if (`#/${key}` !== window.location.hash) window.history.pushState(null, "", `#/${key}`);
+      setScreen(key);
+    },
+    [screen],
+  );
+
+  // On section change: restore scroll, then move focus to <main> and let the live region announce.
+  useEffect(() => {
+    window.scrollTo(0, scrollMemory.current[screen] ?? 0);
+    if (didMount.current) mainRef.current?.focus({ preventScroll: true });
+    didMount.current = true;
+  }, [screen]);
 
   return (
-    <div style={{ width: "100%", minHeight: "100vh", display: "flex", background: "#05090e", color: "#cfe6f5", fontFamily: "'Barlow',system-ui,sans-serif" }}>
-      <NavRail active={screen} onSelect={go} />
+    <div style={{ width: "100%", minHeight: "100vh", display: "flex", background: "var(--bg)", color: "var(--text-body)" }}>
+      <SkipLink />
+
+      <NavRail active={screen} onSelect={go} open={navOpen} onClose={() => setNavOpen(false)} />
 
       <div
         style={{
@@ -76,13 +119,28 @@ export function Dashboard({ snapshot }: DashboardProps) {
           title={SECTION_TITLES[screen]}
           showBack={screen !== "overview"}
           onBack={() => go("overview")}
+          onMenu={() => setNavOpen((v) => !v)}
           asOf={snapshot.as_of}
           allUp={snapshot.infra.all_up}
         />
 
-        <div style={{ flex: 1, padding: "26px 30px 44px" }}>
-          <Section screen={screen} snapshot={snapshot} go={go} />
-        </div>
+        <main
+          id="main"
+          ref={mainRef}
+          tabIndex={-1}
+          className="fr-app-body"
+          style={{ flex: 1, padding: "26px 30px 44px", outline: "none" }}
+        >
+          {/* re-keying on screen retriggers the section-enter animation */}
+          <div key={screen} className="fr-section-enter">
+            <Section screen={screen} snapshot={snapshot} go={go} />
+          </div>
+        </main>
+      </div>
+
+      {/* polite announcement of the active section for assistive tech */}
+      <div aria-live="polite" style={srOnly}>
+        {SECTION_TITLES[screen]} section
       </div>
     </div>
   );

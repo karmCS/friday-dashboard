@@ -3,25 +3,18 @@
 /**
  * ATHLETE INSPECTOR — Deficit drill-down (the one PII surface, read LIVE on demand).
  *
- * Wires to `GET /api/inspector` (src/app/api/inspector/route.ts), two modes:
- *   ?q=<name|uuid>     → { data: { mode: "search", athletes: Athlete[] } }
- *   ?fighter_id=<uuid> → { data: { mode: "detail", athlete, timeline[], bodyweight[] } }
- *
- * ⚠ PRIVACY: this renders ONLY what the server returns. Nothing here is hardcoded or faked —
- * no sample athletes, no sample journal text. With no service_role key in dev the API returns
- * empty arrays, so the default state is a clean "Search for an athlete" prompt and a no-results
- * search shows "No athletes found." All fetched JSON is narrowed from `unknown` (no `any`).
- *
- * Mood (per design/Friday.dc.html INSPECTOR): calmer/darker than the gacha Overview — flat
- * `#0c1620`/`#0e1c27` panels with subtle 1px borders, not the bright clip-path Questism frames.
- * Charts are hand-built inline SVG (no library).
- *
- * Motion (Emil Kowalski): single custom ease, transform/opacity only, 120–250ms. Rows/chips
- * brighten on hover; the selected chip has a clear active state. Search results just appear —
- * no entrance choreography. All motion is guarded by `prefers-reduced-motion`.
+ * Wires to `GET /api/inspector`: `?q=<name|uuid>` → search athletes; `?fighter_id=<uuid>` →
+ * detail (athlete + timeline + bodyweight). PRIVACY: renders ONLY server data — nothing faked;
+ * with no service_role key in dev the API returns empty arrays. All JSON narrowed from `unknown`.
+ * Mood: calmer/darker than Overview — flat `#0c1620`/`#0e1c27` panels, not clip-path frames.
+ * Charts are hand-built inline SVG. Shared tokens/format/ui used throughout; motion governed by
+ * the single global reduced-motion guard in globals.css.
  */
 
 import { CSSProperties, useEffect, useRef, useState } from "react";
+import { t, tabularNum, buttonReset } from "@/components/dashboard/tokens";
+import { fmtNum } from "@/lib/format";
+import { Skeleton, srOnly } from "@/components/dashboard/ui";
 
 // --- API shapes (narrowed from unknown — never trust the wire) ----------------
 
@@ -115,21 +108,14 @@ function parseDetail(value: unknown): DetailData {
 }
 
 // --- style tokens (Inspector mood: flat, dark, subtle borders) ----------------
-
-const DISPLAY = "'Black Han Sans',sans-serif";
-const BODY = "'Barlow',sans-serif";
-const MONO = "'JetBrains Mono',monospace";
-const EASE = "cubic-bezier(0.23,1,0.32,1)";
+// The flat near-black panel surfaces below are the section's deliberate "calmer" mood
+// (darker than the bright Questism frames); brand/text/frame roles use shared tokens.
 
 const PANEL_BG = "#0c1620";
 const ENTRY_BG = "#0e1c27";
 const BORDER = "rgba(120,150,170,.18)";
 const BORDER_SOFT = "rgba(120,150,170,.14)";
-const TEXT = "#dceef2";
-const TEXT_DIM = "#9fb4c0";
-const TEXT_MUTE = "#6f8a98";
-const TEXT_FAINT = "#5d7785";
-const ACCENT = "#5fc8d8";
+const PANEL_TEXT = "#dceef2";
 const SEARCH_DEBOUNCE_MS = 300;
 
 /** A flat Inspector panel — no clip-path, just a soft inset 1px border. */
@@ -142,22 +128,23 @@ const panel = (extra?: CSSProperties): CSSProperties => ({
 });
 
 const panelHeading: CSSProperties = {
-  fontFamily: DISPLAY,
+  fontFamily: t.font.display,
   fontSize: 16,
-  color: TEXT,
+  color: PANEL_TEXT,
   letterSpacing: ".03em",
 };
 
 const panelMeta: CSSProperties = {
-  fontFamily: MONO,
+  fontFamily: t.font.mono,
   fontSize: 9,
-  color: TEXT_FAINT,
+  color: t.textDim,
 };
 
 /**
  * Timeline entries are colour-coded by `kind` (left border + tag), matching the design's
  * post-comp / coach-chat / weekly-check-in / camp-debrief swatches. The match is fuzzy on
  * normalized kind text so server variants (e.g. "post_comp_review", "weekly check-in") land.
+ * These multi-hue grade swatches are intentional art and stay as literals.
  */
 interface KindStyle {
   border: string;
@@ -257,11 +244,14 @@ function SearchBar({
   value,
   onChange,
   busy,
+  inputRef,
 }: {
   value: string;
   onChange: (v: string) => void;
   busy: boolean;
+  inputRef: React.RefObject<HTMLInputElement>;
 }) {
+  const [focused, setFocused] = useState(false);
   return (
     <div
       style={{
@@ -270,43 +260,49 @@ function SearchBar({
         alignItems: "center",
         gap: 11,
         background: "#0d1a24",
-        boxShadow: "inset 0 0 0 1px rgba(120,150,170,.2)",
+        boxShadow: focused
+          ? `inset 0 0 0 1px ${t.frame}, 0 0 0 2px ${t.glowSoft}`
+          : "inset 0 0 0 1px rgba(120,150,170,.2)",
         borderRadius: 9,
         padding: "11px 17px",
+        transition: `box-shadow ${t.dur.fast} ${t.ease}`,
       }}
     >
-      <span style={{ color: ACCENT, fontSize: 16 }} aria-hidden>
+      <span style={{ color: t.accent, fontSize: 16 }} aria-hidden>
         ⌕
       </span>
       <input
+        ref={inputRef}
         type="search"
         value={value}
         onChange={(e) => onChange(e.target.value)}
+        onFocus={() => setFocused(true)}
+        onBlur={() => setFocused(false)}
         placeholder="Search athlete by name or UUID…"
-        aria-label="Search athlete by name or UUID"
+        aria-label="Search athletes"
         spellCheck={false}
         autoComplete="off"
         style={{
           flex: 1,
           background: "transparent",
           border: "none",
-          outline: "none",
-          fontFamily: BODY,
+          fontFamily: t.font.body,
           fontSize: 13.5,
-          color: TEXT,
+          color: PANEL_TEXT,
           padding: 0,
         }}
       />
       <span
+        aria-hidden
         style={{
-          fontFamily: MONO,
+          fontFamily: t.font.mono,
           fontSize: 10,
-          color: busy ? ACCENT : "#3f5666",
+          color: busy ? t.accent : t.textDim,
           letterSpacing: ".08em",
-          transition: `color 150ms ${EASE}`,
+          transition: `color ${t.dur.fast} ${t.ease}`,
         }}
       >
-        {busy ? "…" : "⌘K"}
+        ⌘K
       </span>
     </div>
   );
@@ -324,23 +320,22 @@ function AthleteChip({
   return (
     <button
       type="button"
+      role="option"
+      aria-selected={selected}
       onClick={onSelect}
-      aria-pressed={selected}
-      className={`insp-chip${selected ? " insp-chip-on" : ""}`}
+      className="fr-pressable"
       style={{
+        ...buttonReset,
         display: "flex",
         alignItems: "center",
         gap: 10,
         background: selected ? "#0d2027" : PANEL_BG,
         boxShadow: selected
-          ? "inset 0 0 0 1px rgba(95,184,200,.5),0 0 16px rgba(70,160,180,.12)"
+          ? `inset 0 0 0 1px ${t.frame},0 0 16px ${t.glowSoft}`
           : "inset 0 0 0 1px rgba(120,150,170,.16)",
         borderRadius: 9,
-        border: "none",
         padding: "9px 14px 9px 10px",
-        cursor: "pointer",
         textAlign: "left",
-        transition: `transform 120ms ${EASE}, box-shadow 150ms ${EASE}, background 150ms ${EASE}`,
       }}
     >
       <span
@@ -353,7 +348,7 @@ function AthleteChip({
           display: "flex",
           alignItems: "center",
           justifyContent: "center",
-          fontFamily: DISPLAY,
+          fontFamily: t.font.display,
           fontSize: 14,
           color: selected ? "#06222a" : "#8aa0ac",
         }}
@@ -365,10 +360,10 @@ function AthleteChip({
         <span
           style={{
             display: "block",
-            fontFamily: BODY,
+            fontFamily: t.font.body,
             fontWeight: 700,
             fontSize: 12.5,
-            color: selected ? TEXT : TEXT_DIM,
+            color: selected ? PANEL_TEXT : t.textBody,
             lineHeight: 1,
             maxWidth: 150,
             overflow: "hidden",
@@ -378,7 +373,7 @@ function AthleteChip({
         >
           {displayName(athlete)}
         </span>
-        <span style={{ display: "block", fontFamily: MONO, fontSize: 9, color: selected ? "#5d8590" : "#4f6975", marginTop: 3 }}>
+        <span style={{ display: "block", fontFamily: t.font.mono, fontSize: 9, color: t.textDim, marginTop: 3 }}>
           {shortId(athlete.fighter_id)}
           {athlete.sport ? ` · ${athlete.sport.toLowerCase()}` : ""}
         </span>
@@ -400,7 +395,7 @@ function Timeline({ entries }: { entries: readonly TimelineEntry[] }) {
       </div>
 
       {entries.length === 0 ? (
-        <div style={{ fontFamily: BODY, fontSize: 13, color: TEXT_MUTE, padding: "28px 4px", textAlign: "center" }}>
+        <div style={{ fontFamily: t.font.body, fontSize: 13, color: t.textMuted, padding: "28px 4px", textAlign: "center" }}>
           No journal entries for this athlete yet.
         </div>
       ) : (
@@ -411,20 +406,19 @@ function Timeline({ entries }: { entries: readonly TimelineEntry[] }) {
             return (
               <article
                 key={i}
-                className="insp-entry"
+                className="fr-card"
                 style={{
                   background: ENTRY_BG,
                   boxShadow: `inset 0 0 0 1px ${BORDER_SOFT}`,
                   borderRadius: 8,
                   padding: "14px 16px",
                   borderLeft: `2px solid ${ks.border}`,
-                  transition: `transform 120ms ${EASE}, box-shadow 150ms ${EASE}`,
                 }}
               >
                 <div style={{ display: "flex", alignItems: "center", gap: 9, marginBottom: 9, flexWrap: "wrap" }}>
                   <span
                     style={{
-                      fontFamily: BODY,
+                      fontFamily: t.font.body,
                       fontWeight: 800,
                       fontSize: 9.5,
                       letterSpacing: ".1em",
@@ -436,13 +430,13 @@ function Timeline({ entries }: { entries: readonly TimelineEntry[] }) {
                   >
                     {tagLabel(entry.kind)}
                   </span>
-                  {sub ? <span style={{ fontFamily: BODY, fontSize: 11, color: TEXT_MUTE }}>{sub}</span> : null}
-                  <span style={{ marginLeft: "auto", fontFamily: MONO, fontSize: 10, color: TEXT_FAINT }}>
+                  {sub ? <span style={{ fontFamily: t.font.body, fontSize: 11, color: t.textMuted }}>{sub}</span> : null}
+                  <span style={{ marginLeft: "auto", fontFamily: t.font.mono, fontSize: 10, color: t.textDim, ...tabularNum }}>
                     {fmtDay(entry.when_at)}
                   </span>
                 </div>
-                <div style={{ fontFamily: BODY, fontSize: 13.5, lineHeight: 1.6, color: "#c4d6e0", whiteSpace: "pre-wrap", wordBreak: "break-word" }}>
-                  {entry.text && entry.text.trim() !== "" ? entry.text : <span style={{ color: TEXT_FAINT }}>—</span>}
+                <div style={{ fontFamily: t.font.body, fontSize: 13.5, lineHeight: 1.6, color: "#c4d6e0", whiteSpace: "pre-wrap", wordBreak: "break-word" }}>
+                  {entry.text && entry.text.trim() !== "" ? entry.text : <span style={{ color: t.textDim }}>—</span>}
                 </div>
               </article>
             );
@@ -467,7 +461,7 @@ function AthleteHeader({ athlete }: { athlete: Athlete }) {
             display: "flex",
             alignItems: "center",
             justifyContent: "center",
-            fontFamily: DISPLAY,
+            fontFamily: t.font.display,
             fontSize: 22,
             color: "#06222a",
           }}
@@ -478,9 +472,9 @@ function AthleteHeader({ athlete }: { athlete: Athlete }) {
         <div style={{ minWidth: 0 }}>
           <div
             style={{
-              fontFamily: DISPLAY,
+              fontFamily: t.font.display,
               fontSize: 20,
-              color: TEXT,
+              color: PANEL_TEXT,
               lineHeight: 1,
               overflow: "hidden",
               textOverflow: "ellipsis",
@@ -489,12 +483,12 @@ function AthleteHeader({ athlete }: { athlete: Athlete }) {
           >
             {displayName(athlete).toUpperCase()}
           </div>
-          <div style={{ fontFamily: MONO, fontSize: 10, color: "#5d8590", marginTop: 4, wordBreak: "break-all" }}>
+          <div style={{ fontFamily: t.font.mono, fontSize: 10, color: t.textMuted, marginTop: 4, wordBreak: "break-all" }}>
             uuid {athlete.fighter_id}
             {athlete.sport ? ` · ${athlete.sport}` : ""}
           </div>
           {athlete.email ? (
-            <div style={{ fontFamily: MONO, fontSize: 10, color: TEXT_FAINT, marginTop: 3, wordBreak: "break-all" }}>
+            <div style={{ fontFamily: t.font.mono, fontSize: 10, color: t.textDim, marginTop: 3, wordBreak: "break-all" }}>
               {athlete.email}
             </div>
           ) : null}
@@ -514,8 +508,8 @@ function AthleteHeader({ athlete }: { athlete: Athlete }) {
 function PlaceholderTile({ label }: { label: string }) {
   return (
     <div style={{ flex: 1, background: ENTRY_BG, boxShadow: `inset 0 0 0 1px ${BORDER_SOFT}`, borderRadius: 7, padding: "10px 12px" }}>
-      <div style={{ fontFamily: DISPLAY, fontSize: 20, color: TEXT_FAINT, lineHeight: 1 }}>—</div>
-      <div style={{ fontFamily: BODY, fontWeight: 700, fontSize: 8.5, letterSpacing: ".08em", color: TEXT_MUTE, marginTop: 5 }}>
+      <div style={{ fontFamily: t.font.display, fontSize: 20, color: t.textDim, lineHeight: 1 }}>—</div>
+      <div style={{ fontFamily: t.font.body, fontWeight: 700, fontSize: 8.5, letterSpacing: ".08em", color: t.textMuted, marginTop: 5 }}>
         {label}
       </div>
     </div>
@@ -532,10 +526,10 @@ function MacrosPanel() {
       </div>
       <div
         style={{
-          fontFamily: BODY,
+          fontFamily: t.font.body,
           fontSize: 12.5,
           lineHeight: 1.55,
-          color: TEXT_MUTE,
+          color: t.textMuted,
           background: ENTRY_BG,
           boxShadow: `inset 0 0 0 1px ${BORDER_SOFT}`,
           borderRadius: 7,
@@ -579,8 +573,8 @@ function scalePoints(points: readonly PlottablePoint[]): ScaledPoint[] {
   return points.map((point, i) => {
     const x = points.length === 1 ? BW_W / 2 : BW_PAD_X + (innerW * i) / (points.length - 1);
     // Higher weight → higher on chart (smaller y). Flat line when span is 0.
-    const t = span === 0 ? 0.5 : (point.weight - min) / span;
-    const y = BW_PAD_TOP + innerH * (1 - t);
+    const tNorm = span === 0 ? 0.5 : (point.weight - min) / span;
+    const y = BW_PAD_TOP + innerH * (1 - tNorm);
     return { x, y, point };
   });
 }
@@ -596,7 +590,7 @@ function BodyweightPanel({ points }: { points: readonly BodyweightPoint[] }) {
   const first = plottable[0];
   const last = plottable[plottable.length - 1];
   const delta = hasData && first && last ? last.weight - first.weight : null;
-  const deltaColor = delta === null ? TEXT_MUTE : delta <= 0 ? "#7dd6a0" : "#ff9a8a";
+  const deltaColor = delta === null ? t.textMuted : delta <= 0 ? t.up : t.down;
   const deltaArrow = delta === null ? "" : delta <= 0 ? "▼" : "▲";
 
   const line = scaled.map((s) => `${s.x.toFixed(1)},${s.y.toFixed(1)}`).join(" ");
@@ -615,58 +609,126 @@ function BodyweightPanel({ points }: { points: readonly BodyweightPoint[] }) {
       {hasData ? (
         <>
           <div style={{ display: "flex", alignItems: "baseline", gap: 8, marginBottom: 6 }}>
-            <span style={{ fontFamily: DISPLAY, fontSize: 28, color: TEXT, lineHeight: 1 }}>
+            <span style={{ fontFamily: t.font.display, fontSize: 28, color: PANEL_TEXT, lineHeight: 1, ...tabularNum }}>
               {last ? last.weight.toFixed(1) : "—"}
             </span>
             {delta !== null ? (
-              <span style={{ fontFamily: BODY, fontWeight: 700, fontSize: 12, color: deltaColor }}>
-                {deltaArrow} {Math.abs(delta).toFixed(1)} lb
+              <span style={{ fontFamily: t.font.body, fontWeight: 700, fontSize: 12, color: deltaColor, ...tabularNum }}>
+                <span aria-hidden>{deltaArrow} </span>
+                {Math.abs(delta).toFixed(1)} lb
               </span>
             ) : null}
           </div>
           <svg viewBox={`0 0 ${BW_W} ${BW_H}`} style={{ width: "100%", height: 84, display: "block" }} role="img" aria-label="Bodyweight trend">
-            <polygon points={area} fill={ACCENT} opacity={0.08} />
-            <polyline points={line} fill="none" stroke={ACCENT} strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round" />
+            <polygon points={area} fill={t.accent} opacity={0.08} />
+            <polyline points={line} fill="none" stroke={t.accent} strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round" />
             {tail ? (
               <>
-                <circle cx={tail.x} cy={tail.y} r={4} fill="#7dd6a0" />
-                <circle cx={tail.x} cy={tail.y} r={7} fill="none" stroke="#7dd6a0" strokeWidth={1.5} opacity={0.4} />
+                <circle cx={tail.x} cy={tail.y} r={4} fill={t.up} />
+                <circle cx={tail.x} cy={tail.y} r={7} fill="none" stroke={t.up} strokeWidth={1.5} opacity={0.4} />
               </>
             ) : null}
           </svg>
-          <div style={{ display: "flex", justifyContent: "space-between", fontFamily: MONO, fontSize: 9, color: "#4f6975", marginTop: 2 }}>
+          <div style={{ display: "flex", justifyContent: "space-between", fontFamily: t.font.mono, fontSize: 9, color: t.textDim, marginTop: 2, ...tabularNum }}>
             <span>{fmtDay(first?.date ?? null)}</span>
             <span>{fmtDay(last?.date ?? null)}</span>
           </div>
         </>
       ) : (
-        <div style={{ fontFamily: BODY, fontSize: 13, color: TEXT_MUTE, padding: "22px 4px", textAlign: "center" }}>
+        <div style={{ fontFamily: t.font.body, fontSize: 13, color: t.textMuted, padding: "22px 4px", textAlign: "center" }}>
           —<br />
-          <span style={{ fontSize: 11, color: TEXT_FAINT }}>No bodyweight logs.</span>
+          <span style={{ fontSize: 11, color: t.textDim }}>No bodyweight logs.</span>
         </div>
       )}
     </div>
   );
 }
 
-// --- prompts (empty / loading / error fillers) --------------------------------
+// --- prompts (empty / error fillers) ------------------------------------------
 
 function CenteredPanel({ children, tone = "mute" }: { children: React.ReactNode; tone?: "mute" | "error" }) {
   return (
     <div style={panel({ marginTop: 13 })}>
       <div
         style={{
-          fontFamily: BODY,
+          fontFamily: t.font.body,
           fontWeight: 700,
           fontSize: 13.5,
           letterSpacing: ".02em",
-          color: tone === "error" ? "#ff9a8a" : TEXT_MUTE,
+          color: tone === "error" ? t.down : t.textMuted,
           textAlign: "center",
           padding: "44px 20px",
           lineHeight: 1.6,
         }}
       >
         {children}
+      </div>
+    </div>
+  );
+}
+
+/** Shape-matching skeleton for the detail panel: timeline column + sidebar (header/macros/chart). */
+function DetailSkeleton() {
+  return (
+    <div style={{ display: "flex", gap: 13, alignItems: "flex-start", flexWrap: "wrap", marginTop: 13 }} aria-hidden>
+      <div style={{ flex: "1.55 1 380px", minWidth: 300 }}>
+        <div style={panel({ flex: 1.55 })}>
+          <Skeleton width={120} height={18} style={{ marginBottom: 16 }} />
+          <div style={{ display: "flex", flexDirection: "column", gap: 11 }}>
+            {[0, 1, 2].map((i) => (
+              <Skeleton key={i} height={78} radius={8} />
+            ))}
+          </div>
+        </div>
+      </div>
+      <div style={{ flex: "1 1 280px", minWidth: 260, display: "flex", flexDirection: "column", gap: 13 }}>
+        <div style={panel()}>
+          <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 15 }}>
+            <Skeleton width={44} height={44} radius={22} />
+            <div style={{ flex: 1 }}>
+              <Skeleton width="70%" height={20} style={{ marginBottom: 8 }} />
+              <Skeleton width="90%" height={10} />
+            </div>
+          </div>
+          <div style={{ display: "flex", gap: 10 }}>
+            {[0, 1, 2].map((i) => (
+              <Skeleton key={i} height={54} radius={7} style={{ flex: 1 }} />
+            ))}
+          </div>
+        </div>
+        <div style={panel()}>
+          <Skeleton width={110} height={14} style={{ marginBottom: 13 }} />
+          <Skeleton height={52} radius={7} />
+        </div>
+        <div style={panel()}>
+          <Skeleton width={100} height={14} style={{ marginBottom: 10 }} />
+          <Skeleton height={84} radius={7} />
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// --- skeleton chips (search busy cue) -----------------------------------------
+
+function SkeletonChip() {
+  return (
+    <div
+      aria-hidden
+      style={{
+        display: "flex",
+        alignItems: "center",
+        gap: 10,
+        background: PANEL_BG,
+        boxShadow: "inset 0 0 0 1px rgba(120,150,170,.16)",
+        borderRadius: 9,
+        padding: "9px 14px 9px 10px",
+      }}
+    >
+      <Skeleton width={30} height={30} radius={15} />
+      <div>
+        <Skeleton width={110} height={12} style={{ marginBottom: 5 }} />
+        <Skeleton width={64} height={9} />
       </div>
     </div>
   );
@@ -696,6 +758,7 @@ export function InspectorSection(): React.JSX.Element {
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const searchAbortRef = useRef<AbortController | null>(null);
   const detailAbortRef = useRef<AbortController | null>(null);
+  const searchInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     const trimmed = query.trim();
@@ -739,6 +802,19 @@ export function InspectorSection(): React.JSX.Element {
     };
   }, [query]);
 
+  // ⌘K / Ctrl+K focuses the search field (the on-screen hint now actually binds).
+  useEffect(() => {
+    function onKey(e: KeyboardEvent): void {
+      if ((e.metaKey || e.ctrlKey) && (e.key === "k" || e.key === "K")) {
+        e.preventDefault();
+        searchInputRef.current?.focus();
+        searchInputRef.current?.select();
+      }
+    }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
+
   // Tear down in-flight requests on unmount.
   useEffect(() => {
     return () => {
@@ -747,9 +823,13 @@ export function InspectorSection(): React.JSX.Element {
     };
   }, []);
 
-  function selectAthlete(athlete: Athlete): void {
-    if (athlete.fighter_id === selectedId) return;
-    setSelectedId(athlete.fighter_id);
+  /**
+   * Loads the detail for one fighter id. Pulled out of selectAthlete so the error branch can
+   * retry directly — selectAthlete's equality guard (id === selectedId) would otherwise make a
+   * re-click a no-op after the first failure.
+   */
+  function loadDetail(fighterId: string, fallback?: Athlete): void {
+    setSelectedId(fighterId);
     setDetailStatus("loading");
     setDetail(null);
 
@@ -760,12 +840,12 @@ export function InspectorSection(): React.JSX.Element {
     void (async () => {
       try {
         const body = await fetchJson(
-          `${SEARCH_PATH}?fighter_id=${encodeURIComponent(athlete.fighter_id)}`,
+          `${SEARCH_PATH}?fighter_id=${encodeURIComponent(fighterId)}`,
           controller.signal,
         );
         const parsed = parseDetail(body);
         // The header always shows: prefer the API's athlete, fall back to the chip we clicked.
-        setDetail({ ...parsed, athlete: parsed.athlete ?? athlete });
+        setDetail({ ...parsed, athlete: parsed.athlete ?? fallback ?? null });
         setDetailStatus("ready");
       } catch (e: unknown) {
         if (e instanceof DOMException && e.name === "AbortError") return;
@@ -774,42 +854,58 @@ export function InspectorSection(): React.JSX.Element {
     })();
   }
 
+  function selectAthlete(athlete: Athlete): void {
+    if (athlete.fighter_id === selectedId) return;
+    loadDetail(athlete.fighter_id, athlete);
+  }
+
   const queryIsUuid = UUID_RE.test(query.trim());
   const showNoResults = searched && !searching && !searchError && results.length === 0;
 
+  // aria-live status text for the search row.
+  const searchStatus = searching
+    ? "Searching…"
+    : searchError
+      ? "Search failed."
+      : showNoResults
+        ? "No athletes found."
+        : results.length > 0
+          ? `${fmtNum(results.length)} ${results.length === 1 ? "athlete" : "athletes"} found.`
+          : "";
+
   return (
     <div style={{ maxWidth: 1180, margin: "0 auto", display: "flex", flexDirection: "column", gap: 13 }}>
-      <style>{`
-        .insp-chip:hover { box-shadow: inset 0 0 0 1px rgba(120,150,170,.34); }
-        .insp-chip-on:hover { box-shadow: inset 0 0 0 1px rgba(95,184,200,.6),0 0 18px rgba(70,160,180,.16); }
-        .insp-chip:active { transform: scale(0.98); }
-        .insp-entry:hover { box-shadow: inset 0 0 0 1px rgba(120,150,170,.3); }
-        @media (prefers-reduced-motion: reduce) {
-          .insp-chip, .insp-entry { transition: none !important; }
-          .insp-chip:active { transform: none !important; }
-        }
-      `}</style>
-
       {/* search + result chips */}
-      <div style={{ display: "flex", gap: 11, alignItems: "center", flexWrap: "wrap" }}>
-        <SearchBar value={query} onChange={setQuery} busy={searching} />
-        {results.map((athlete) => (
-          <AthleteChip
-            key={athlete.fighter_id}
-            athlete={athlete}
-            selected={athlete.fighter_id === selectedId}
-            onSelect={() => selectAthlete(athlete)}
-          />
-        ))}
+      <div
+        role="listbox"
+        aria-label="Athlete search results"
+        style={{ display: "flex", gap: 11, alignItems: "center", flexWrap: "wrap" }}
+      >
+        <SearchBar value={query} onChange={setQuery} busy={searching} inputRef={searchInputRef} />
+        {searching && results.length === 0
+          ? [0, 1, 2].map((i) => <SkeletonChip key={i} />)
+          : results.map((athlete) => (
+              <AthleteChip
+                key={athlete.fighter_id}
+                athlete={athlete}
+                selected={athlete.fighter_id === selectedId}
+                onSelect={() => selectAthlete(athlete)}
+              />
+            ))}
+      </div>
+
+      {/* live status (announced to AT; visible only as the messaging below) */}
+      <div aria-live="polite" role="status" style={srOnly}>
+        {searchStatus}
       </div>
 
       {/* search-level messaging */}
       {searchError ? (
-        <div style={{ fontFamily: BODY, fontWeight: 700, fontSize: 11.5, color: "#ff9a8a", padding: "0 4px" }}>
+        <div style={{ fontFamily: t.font.body, fontWeight: 700, fontSize: 11.5, color: t.down, padding: "0 4px" }}>
           Search failed — check the connection and try again.
         </div>
       ) : showNoResults ? (
-        <div style={{ fontFamily: BODY, fontWeight: 700, fontSize: 11.5, color: TEXT_MUTE, padding: "0 4px" }}>
+        <div style={{ fontFamily: t.font.body, fontWeight: 700, fontSize: 11.5, color: t.textMuted, padding: "0 4px" }}>
           No athletes found{queryIsUuid ? " for that UUID" : ` for “${query.trim()}”`}.
         </div>
       ) : null}
@@ -819,17 +915,40 @@ export function InspectorSection(): React.JSX.Element {
         <CenteredPanel>
           Search for an athlete
           <br />
-          <span style={{ fontWeight: 600, fontSize: 11.5, color: TEXT_FAINT, letterSpacing: ".06em" }}>
+          <span style={{ fontWeight: 600, fontSize: 11.5, color: t.textDim, letterSpacing: ".06em" }}>
             BY NAME OR UUID TO OPEN THEIR JOURNAL TIMELINE
           </span>
         </CenteredPanel>
       ) : detailStatus === "loading" ? (
-        <CenteredPanel>Loading athlete…</CenteredPanel>
+        <>
+          <div aria-live="polite" role="status" style={srOnly}>
+            Loading athlete
+          </div>
+          <DetailSkeleton />
+        </>
       ) : detailStatus === "error" ? (
         <CenteredPanel tone="error">
           Could not load this athlete.
           <br />
-          <span style={{ fontWeight: 600, fontSize: 11.5, color: TEXT_FAINT }}>Select the chip again to retry.</span>
+          <button
+            type="button"
+            className="fr-pressable"
+            onClick={() => selectedId && loadDetail(selectedId)}
+            style={{
+              ...buttonReset,
+              marginTop: 12,
+              fontFamily: t.font.body,
+              fontWeight: 700,
+              fontSize: 11.5,
+              letterSpacing: ".04em",
+              color: t.accent,
+              padding: "7px 16px",
+              borderRadius: 7,
+              boxShadow: `inset 0 0 0 1px ${t.frame}`,
+            }}
+          >
+            Retry
+          </button>
         </CenteredPanel>
       ) : detail && detail.athlete ? (
         <div style={{ display: "flex", gap: 13, alignItems: "flex-start", flexWrap: "wrap" }}>

@@ -1,8 +1,13 @@
 "use client";
 
-import { CSSProperties, useCallback, useEffect, useMemo, useState } from "react";
+import { CSSProperties, ChangeEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 
+import { t, tabularNum, buttonReset } from "@/components/dashboard/tokens";
+import { Skeleton, srOnly } from "@/components/dashboard/ui";
+import { fmtNum } from "@/lib/format";
 import type { Tacos } from "@/lib/types";
+import { photoUrlFor, validatePhoto, PHOTO_ACCEPT, PHOTO_HINT } from "./tacos/photo";
+import { EntryDetail, type DetailPalette } from "./shared/entry-detail";
 
 /**
  * Taco Tracker section (magenta palette — tonal contrast to the teal analytics sections).
@@ -13,7 +18,8 @@ import type { Tacos } from "@/lib/types";
  *     · a sortable "THE LOG" table (client-side sort, default rating desc),
  *     · a rating histogram (counts per 1–10 bucket),
  *     · a by-city grouping (count + avg rating bars).
- * - A small quick-log form POSTs to `/api/tacos` then refetches (optional nicety).
+ * - A quick-log form POSTs to `/api/tacos`, optimistically prepending the new row and
+ *   reconciling with the server response (rolling back on failure).
  *
  * The list may be empty in dev, so every derived view has a graceful empty state.
  */
@@ -23,7 +29,14 @@ import type { Tacos } from "@/lib/types";
 const PRICE_TIERS = ["$", "$$", "$$$"] as const;
 type PriceTier = (typeof PRICE_TIERS)[number];
 
-/** One taco row exactly as returned by `GET /api/tacos` (mirrors TacoRow in shared.ts). */
+/** Human names for price tiers — used as accessible labels on the otherwise glyph-only chips. */
+const PRICE_TIER_NAMES: Record<PriceTier, string> = {
+  $: "Budget",
+  $$: "Moderate",
+  $$$: "Expensive",
+};
+
+/** One taco row exactly as returned by `GET /api/tacos` (mirrors PublicTaco in shared.ts). */
 interface TacoApiRow {
   id: number;
   place: string;
@@ -33,14 +46,13 @@ interface TacoApiRow {
   rating: number | null;
   price_tier: string | null;
   notes: string | null;
-  photo_path: string | null;
+  has_photo: boolean;
   visited_at: string;
   created_at: string;
 }
 
-interface TacosListResponse {
-  tacos: TacoApiRow[];
-}
+/** A row in component state: the wire row plus an optional just-picked-photo object URL. */
+type LogRow = TacoApiRow & { localPhotoUrl?: string };
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -49,19 +61,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 /** Narrows one unknown row into a {@link TacoApiRow}, or null when it is malformed. */
 function parseRow(value: unknown): TacoApiRow | null {
   if (!isRecord(value)) return null;
-  const {
-    id,
-    place,
-    city,
-    state,
-    taco_type,
-    rating,
-    price_tier,
-    notes,
-    photo_path,
-    visited_at,
-    created_at,
-  } = value;
+  const { id, place, city, state, taco_type, rating, price_tier, notes, has_photo, visited_at, created_at } = value;
 
   if (typeof id !== "number") return null;
   if (typeof place !== "string" || typeof city !== "string") return null;
@@ -69,17 +69,11 @@ function parseRow(value: unknown): TacoApiRow | null {
   if (typeof visited_at !== "string" || typeof created_at !== "string") return null;
 
   return {
-    id,
-    place,
-    city,
-    state,
-    taco_type,
+    id, place, city, state, taco_type, visited_at, created_at,
     rating: typeof rating === "number" ? rating : null,
     price_tier: typeof price_tier === "string" ? price_tier : null,
     notes: typeof notes === "string" ? notes : null,
-    photo_path: typeof photo_path === "string" ? photo_path : null,
-    visited_at,
-    created_at,
+    has_photo: has_photo === true,
   };
 }
 
@@ -91,22 +85,27 @@ function parseListResponse(value: unknown): TacoApiRow[] {
     .filter((row): row is TacoApiRow => row !== null);
 }
 
-// --- style tokens (magenta) ---------------------------------------------------
+/** Narrows the POST response — either `{ taco: row }` or a bare row. Null when unusable. */
+function parsePostResponse(value: unknown): TacoApiRow | null {
+  if (isRecord(value) && "taco" in value) return parseRow((value as Record<string, unknown>).taco);
+  return parseRow(value);
+}
 
-const DISPLAY = "'Black Han Sans',sans-serif";
-const BODY = "'Barlow',sans-serif";
-const MONO = "'JetBrains Mono',monospace";
+// --- style tokens (magenta art palette; text/frame tokenized via foundation) --
 
+const DISPLAY = t.font.display;
+const BODY = t.font.body;
+const MONO = t.font.mono;
+
+// Multi-hue magenta art (kept as-is per design): card frame + accent gradient stops.
 const MAGENTA_FRAME = "linear-gradient(160deg,#2c1430,#180a1c)";
 const FRAME_BORDER = "rgba(236,160,230,.4)";
 const ACCENT_PINK = "#ff7ae6";
 const ACCENT_PURPLE = "#b450ff";
 const ACCENT_GOLD = "#ffd36b";
-const EASE = "cubic-bezier(0.23,1,0.32,1)";
 
 const RATING_MIN = 1;
 const RATING_MAX = 10;
-const MONTHS = ["JAN", "FEB", "MAR", "APR", "MAY", "JUN", "JUL", "AUG", "SEP", "OCT", "NOV", "DEC"];
 
 /** A magenta Questism card frame with the angled clip-path corner. */
 const card = (extra?: CSSProperties): CSSProperties => ({
@@ -118,32 +117,11 @@ const card = (extra?: CSSProperties): CSSProperties => ({
   ...extra,
 });
 
-const kicker: CSSProperties = {
-  fontFamily: BODY,
-  fontWeight: 700,
-  fontSize: 10,
-  letterSpacing: ".14em",
-  color: "#cf9fe0",
-};
+const kicker: CSSProperties = { fontFamily: BODY, fontWeight: 700, fontSize: 10, letterSpacing: ".14em", color: "#cf9fe0" };
 
-const cardHeading: CSSProperties = {
-  fontFamily: DISPLAY,
-  fontSize: 16,
-  color: "#ffd9f4",
-  letterSpacing: ".03em",
-};
+const cardHeading: CSSProperties = { fontFamily: DISPLAY, fontSize: 16, color: "#ffd9f4", letterSpacing: ".03em" };
 
 // --- helpers ------------------------------------------------------------------
-
-const fmtNum = (n: number): string => n.toLocaleString("en-US");
-
-/** "JUN 19" from a YYYY-MM-DD string (falls back to the raw value on parse failure). */
-function fmtDate(iso: string): string {
-  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(iso);
-  if (!m) return iso;
-  const month = MONTHS[Number(m[2]) - 1] ?? "";
-  return `${month} ${m[3]}`.trim();
-}
 
 /** Rating → colour: green high, gold mid, salmon low (matches the design). */
 function ratingColor(rating: number | null): string {
@@ -153,7 +131,39 @@ function ratingColor(rating: number | null): string {
   return "#ff9a8a";
 }
 
-type SortKey = "place" | "city" | "state" | "taco_type" | "rating" | "price_tier" | "visited_at";
+/** Magenta palette for the shared full-screen EntryDetail. */
+const TACO_DETAIL_PALETTE: DetailPalette = {
+  frameBg: MAGENTA_FRAME,
+  frameBorder: FRAME_BORDER,
+  accent: ACCENT_PINK,
+  accent2: ACCENT_PURPLE,
+  gold: ACCENT_GOLD,
+  heading: "#ffd9f4",
+  body: "#e8d2e6",
+  muted: "#cf9fe0",
+  dim: "#9a7aa8",
+  inputBg: "#1c0f22",
+  ratingColor,
+};
+
+/** A row's thumbnail (presentational; the cell's button owns the click). */
+function RowThumb({ row }: { row: LogRow }) {
+  const [failed, setFailed] = useState(false);
+  const src = photoUrlFor(row);
+  if (!src) return <span aria-hidden style={{ opacity: 0.28, fontSize: 14 }}>🌮</span>;
+  if (failed)
+    return (
+      <span aria-hidden style={{ display: "flex", width: 30, height: 30, alignItems: "center", justifyContent: "center", borderRadius: 6, fontSize: 8, fontWeight: 800, color: "#cf9fe0", background: "#1c0f22", boxShadow: `inset 0 0 0 1px ${FRAME_BORDER}` }}>
+        IMG
+      </span>
+    );
+  return (
+    /* eslint-disable-next-line @next/next/no-img-element -- user upload served from our own API */
+    <img src={src} alt="" onError={() => setFailed(true)} style={{ width: 30, height: 30, objectFit: "cover", borderRadius: 6, display: "block", boxShadow: `inset 0 0 0 1px ${FRAME_BORDER}` }} />
+  );
+}
+
+type SortKey = "place" | "city" | "state" | "taco_type" | "rating" | "price_tier";
 type SortDir = "asc" | "desc";
 
 interface Column {
@@ -172,7 +182,6 @@ const COLUMNS: readonly Column[] = [
   { key: "taco_type", label: "TYPE", flex: 1.3, align: "left" },
   { key: "rating", label: "RATING", width: 64, align: "center" },
   { key: "price_tier", label: "PRICE", width: 52, align: "center" },
-  { key: "visited_at", label: "DATE", width: 58, align: "right" },
 ];
 
 /** Compares two rows on a sort key; nulls sort last regardless of direction. */
@@ -207,9 +216,7 @@ function cityStats(rows: readonly TacoApiRow[]): CityStat[] {
     }
     map.set(row.city, entry);
   }
-  return [...map.entries()]
-    .map(([city, e]) => ({ city, count: e.count, avg: e.rated > 0 ? e.sum / e.rated : null }))
-    .sort((a, b) => b.count - a.count);
+  return [...map.entries()].map(([city, e]) => ({ city, count: e.count, avg: e.rated > 0 ? e.sum / e.rated : null })).sort((a, b) => b.count - a.count);
 }
 
 /** Counts rows per 1–10 rating bucket (index 0 → rating 1). */
@@ -223,27 +230,25 @@ function ratingHistogram(rows: readonly TacoApiRow[]): number[] {
   return buckets;
 }
 
+/** One-shot first-paint flag → mounts bars at scale 0, then animates to real value once. */
+function useFirstPaint(): boolean {
+  const [painted, setPainted] = useState(false);
+  useEffect(() => {
+    const id = requestAnimationFrame(() => setPainted(true));
+    return () => cancelAnimationFrame(id);
+  }, []);
+  return painted;
+}
+
 // --- subcomponents ------------------------------------------------------------
 
-function KpiCard({
-  label,
-  value,
-  sub,
-  valueColor,
-  subColor,
-  flex = 1,
-}: {
-  label: string;
-  value: string;
-  sub: string;
-  valueColor: string;
-  subColor: string;
-  flex?: number;
+function KpiCard({ label, value, sub, valueColor, subColor, flex = 1 }: {
+  label: string; value: string; sub: string; valueColor: string; subColor: string; flex?: number;
 }) {
   return (
-    <div style={card({ flex })}>
+    <div className="fr-card" style={card({ flex })}>
       <div style={kicker}>{label}</div>
-      <div style={{ fontFamily: DISPLAY, fontSize: 42, lineHeight: 1, color: valueColor, marginTop: 4 }}>
+      <div style={{ fontFamily: DISPLAY, fontSize: 42, lineHeight: 1, color: valueColor, marginTop: 4, ...tabularNum }}>
         {value}
       </div>
       <div style={{ fontFamily: BODY, fontWeight: 700, fontSize: 11, color: subColor, marginTop: 4 }}>
@@ -254,11 +259,13 @@ function KpiCard({
 }
 
 function cellStyle(col: Column): CSSProperties {
-  return {
-    width: col.width,
-    flex: col.width === undefined ? col.flex : undefined,
-    textAlign: col.align,
-  };
+  return { width: col.width, flex: col.width === undefined ? col.flex : undefined, textAlign: col.align };
+}
+
+/** aria-sort value for a header cell given the active sort state. */
+function ariaSortFor(col: Column, sortKey: SortKey, sortDir: SortDir): "ascending" | "descending" | "none" {
+  if (col.key !== sortKey) return "none";
+  return sortDir === "desc" ? "descending" : "ascending";
 }
 
 function LogTable({
@@ -266,126 +273,151 @@ function LogTable({
   sortKey,
   sortDir,
   onSort,
+  highlightId,
+  onOpenDetail,
 }: {
-  rows: readonly TacoApiRow[];
+  rows: readonly LogRow[];
   sortKey: SortKey;
   sortDir: SortDir;
   onSort: (key: SortKey) => void;
+  highlightId: number | null;
+  onOpenDetail: (row: LogRow) => void;
 }) {
   return (
-    <div style={card({ flex: 1.6 })}>
+    <div className="fr-card" style={card({ flex: 1.6 })}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 13 }}>
         <div style={{ ...cardHeading, fontSize: 18 }}>THE LOG</div>
-        <div style={{ fontFamily: MONO, fontSize: 10, color: "#b07ec0" }}>
-          SORTED BY {sortKey.toUpperCase().replace("_", " ")} {sortDir === "desc" ? "▼" : "▲"} ·{" "}
-          {rows.length} {rows.length === 1 ? "ENTRY" : "ENTRIES"}
+        <div style={{ fontFamily: MONO, fontSize: 10, color: "#b07ec0", ...tabularNum }}>
+          SORTED BY {sortKey.toUpperCase().replace("_", " ")}{" "}
+          <span aria-hidden>{sortDir === "desc" ? "▼" : "▲"}</span> · {rows.length}{" "}
+          {rows.length === 1 ? "ENTRY" : "ENTRIES"}
         </div>
       </div>
 
-      {/* header */}
-      <div
-        style={{
-          display: "flex",
-          fontFamily: BODY,
-          fontWeight: 800,
-          fontSize: 9.5,
-          letterSpacing: ".1em",
-          color: "#b07ec0",
-          padding: "0 8px 9px",
-          borderBottom: `1px solid rgba(236,160,230,.18)`,
-        }}
-      >
-        {COLUMNS.map((col) => {
-          const active = col.key === sortKey;
-          return (
-            <button
-              key={col.key}
-              type="button"
-              onClick={() => onSort(col.key)}
-              className="tacos-sort"
-              style={{
-                ...cellStyle(col),
-                appearance: "none",
-                background: "transparent",
-                border: "none",
-                padding: 0,
-                cursor: "pointer",
-                fontFamily: BODY,
-                fontWeight: 800,
-                fontSize: 9.5,
-                letterSpacing: ".1em",
-                color: active ? ACCENT_GOLD : "#b07ec0",
-                textAlign: col.align,
-                transition: `transform 120ms ${EASE}, color 120ms ${EASE}`,
-              }}
-            >
-              {col.label}
-              {active ? (sortDir === "desc" ? " ▼" : " ▲") : ""}
-            </button>
-          );
-        })}
-      </div>
+      {/* role=* re-asserts table semantics that the display:flex layout would otherwise strip from AT */}
+      <table role="table" style={{ width: "100%", borderCollapse: "collapse", tableLayout: "fixed" }}>
+        <thead role="rowgroup">
+          <tr role="row" style={{ display: "flex", borderBottom: `1px solid rgba(236,160,230,.18)` }}>
+            <th role="columnheader" scope="col" style={{ width: 44, flex: "none", padding: "0 4px 9px" }}>
+              <span style={srOnly}>Photo</span>
+            </th>
+            {COLUMNS.map((col) => {
+              const active = col.key === sortKey;
+              return (
+                <th
+                  key={col.key}
+                  role="columnheader"
+                  scope="col"
+                  aria-sort={ariaSortFor(col, sortKey, sortDir)}
+                  style={{ ...cellStyle(col), padding: "0 8px 9px" }}
+                >
+                  <button
+                    type="button"
+                    onClick={() => onSort(col.key)}
+                    className="fr-pressable"
+                    style={{
+                      appearance: "none", background: "transparent", border: "none", padding: 0, width: "100%", cursor: "pointer",
+                      fontFamily: BODY, fontWeight: 800, fontSize: 9.5, letterSpacing: ".1em",
+                      color: active ? ACCENT_GOLD : "#b07ec0", textAlign: col.align,
+                    }}
+                  >
+                    {col.label}
+                    {active ? <span aria-hidden>{sortDir === "desc" ? " ▼" : " ▲"}</span> : ""}
+                  </button>
+                </th>
+              );
+            })}
+          </tr>
+        </thead>
 
-      {/* rows */}
-      {rows.length === 0 ? (
-        <div style={{ fontFamily: BODY, fontSize: 13, color: "#9a7aa8", padding: "22px 8px", textAlign: "center" }}>
-          No tacos logged yet. Log your first one to start the map. 🌮
-        </div>
-      ) : (
-        <div style={{ display: "flex", flexDirection: "column" }}>
-          {rows.map((row, i) => (
-            <div
-              key={row.id}
-              className="tacos-row"
-              style={{
-                display: "flex",
-                alignItems: "center",
-                fontFamily: BODY,
-                fontSize: 13,
-                color: "#e8d2e6",
-                padding: "9px 8px",
-                borderBottom: i < rows.length - 1 ? `1px solid rgba(236,160,230,.08)` : "none",
-                transition: `background 120ms ${EASE}`,
-              }}
-            >
-              <span style={{ ...cellStyle(COLUMNS[0]), fontWeight: 700 }}>{row.place}</span>
-              <span style={{ ...cellStyle(COLUMNS[1]), color: "#c9a9d6" }}>{row.city}</span>
-              <span style={{ ...cellStyle(COLUMNS[2]), color: "#c9a9d6" }}>{row.state}</span>
-              <span style={{ ...cellStyle(COLUMNS[3]), color: "#c9a9d6" }}>{row.taco_type}</span>
-              <span
+        <tbody role="rowgroup" style={{ display: "flex", flexDirection: "column" }}>
+          {rows.length === 0 ? (
+            <tr role="row">
+              <td
+                role="cell"
+                colSpan={COLUMNS.length + 1}
+                style={{ fontFamily: BODY, fontSize: 13, color: "#9a7aa8", padding: "22px 8px", textAlign: "center" }}
+              >
+                No tacos logged yet. Log your first one to start the map. 🌮
+              </td>
+            </tr>
+          ) : (
+            rows.map((row, i) => (
+              <tr
+                key={row.id}
+                role="row"
+                onClick={() => onOpenDetail(row)}
+                className={row.id === highlightId ? "fr-pulse-alert" : undefined}
                 style={{
-                  ...cellStyle(COLUMNS[4]),
-                  fontFamily: DISPLAY,
-                  fontSize: 17,
-                  color: ratingColor(row.rating),
+                  display: "flex", alignItems: "center", fontFamily: BODY, fontSize: 13, color: "#e8d2e6", padding: "9px 8px",
+                  cursor: "pointer",
+                  borderBottom: i < rows.length - 1 ? `1px solid rgba(236,160,230,.08)` : "none",
+                  background: row.id === highlightId ? "rgba(236,160,230,.1)" : "transparent",
                 }}
               >
-                {row.rating ?? "—"}
-              </span>
-              <span style={{ ...cellStyle(COLUMNS[5]), color: "#ffa24d", fontWeight: 700 }}>
-                {row.price_tier ?? "—"}
-              </span>
-              <span style={{ ...cellStyle(COLUMNS[6]), fontFamily: MONO, fontSize: 10, color: "#9a7aa8" }}>
-                {fmtDate(row.visited_at)}
-              </span>
-            </div>
-          ))}
-        </div>
-      )}
+                <td role="cell" style={{ width: 44, flex: "none", display: "flex", justifyContent: "center" }}>
+                  <button
+                    type="button"
+                    className="fr-pressable"
+                    aria-label={`Open ${row.place}`}
+                    onClick={(e) => { e.stopPropagation(); onOpenDetail(row); }}
+                    style={{ ...buttonReset, cursor: "pointer", lineHeight: 0, borderRadius: 6 }}
+                  >
+                    <RowThumb row={row} />
+                  </button>
+                </td>
+                <td role="cell" style={{ ...cellStyle(COLUMNS[0]), fontWeight: 700 }}>{row.place}</td>
+                <td role="cell" style={{ ...cellStyle(COLUMNS[1]), color: "#c9a9d6" }}>{row.city}</td>
+                <td role="cell" style={{ ...cellStyle(COLUMNS[2]), color: "#c9a9d6" }}>{row.state}</td>
+                <td role="cell" style={{ ...cellStyle(COLUMNS[3]), color: "#c9a9d6" }}>{row.taco_type}</td>
+                <td role="cell" style={{ ...cellStyle(COLUMNS[4]), fontFamily: DISPLAY, fontSize: 17, color: ratingColor(row.rating), ...tabularNum }}>
+                  {row.rating ?? "—"}
+                </td>
+                <td role="cell" style={{ ...cellStyle(COLUMNS[5]), color: "#ffa24d", fontWeight: 700 }}>
+                  {row.price_tier ?? "—"}
+                </td>
+              </tr>
+            ))
+          )}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+/** Shape-matching skeleton for the log while the initial fetch is in flight. */
+function LogSkeleton() {
+  return (
+    <div className="fr-card" style={card({ flex: 1.6 })}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 13 }}>
+        <div style={{ ...cardHeading, fontSize: 18 }}>THE LOG</div>
+        <Skeleton width={120} height={10} />
+      </div>
+      <div style={{ borderBottom: `1px solid rgba(236,160,230,.18)`, padding: "0 8px 9px" }}>
+        <Skeleton width="40%" height={9} />
+      </div>
+      <div style={{ display: "flex", flexDirection: "column" }}>
+        {Array.from({ length: 6 }, (_, i) => (
+          <div key={i} style={{ padding: "9px 8px", borderBottom: i < 5 ? `1px solid rgba(236,160,230,.08)` : "none" }}>
+            <Skeleton height={15} />
+          </div>
+        ))}
+      </div>
     </div>
   );
 }
 
 function RatingHistogram({ rows }: { rows: readonly TacoApiRow[] }) {
+  const painted = useFirstPaint();
   const buckets = ratingHistogram(rows);
   const max = Math.max(1, ...buckets);
   const rated = buckets.reduce((s, n) => s + n, 0);
   const modeIndex = buckets.reduce((best, n, i) => (n > buckets[best] ? i : best), 0);
 
   return (
-    <div style={card({ flex: 1 })}>
+    <div className="fr-card" style={card({ flex: 1 })}>
       <div style={{ ...cardHeading, marginBottom: 2 }}>RATING SPREAD</div>
-      <div style={{ fontFamily: MONO, fontSize: 9, color: "#b07ec0", marginBottom: 16 }}>
+      <div style={{ fontFamily: MONO, fontSize: 9, color: "#b07ec0", marginBottom: 16, ...tabularNum }}>
         {rated > 0 ? `${rated} RATED · MODE ${modeIndex + 1}` : "NO RATINGS YET"}
       </div>
       <div style={{ display: "flex", gap: 6, alignItems: "flex-end", height: 120, padding: "0 4px" }}>
@@ -394,24 +426,17 @@ function RatingHistogram({ rows }: { rows: readonly TacoApiRow[] }) {
           const pct = Math.round((count / max) * 100);
           const isMode = count > 0 && i === modeIndex;
           return (
-            <div
-              key={rating}
-              style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "flex-end", height: "100%" }}
-            >
-              <div style={{ fontFamily: DISPLAY, fontSize: 12, color: count > 0 ? "#cf9fe0" : "#5a3a62", marginBottom: 4 }}>
+            <div key={rating} style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "flex-end", height: "100%" }}>
+              <div style={{ fontFamily: DISPLAY, fontSize: 12, color: count > 0 ? "#cf9fe0" : "#5a3a62", marginBottom: 4, ...tabularNum }}>
                 {count}
               </div>
               <div
                 style={{
-                  width: "100%",
-                  height: `${Math.max(count > 0 ? 6 : 2, pct)}%`,
-                  background:
-                    count === 0
-                      ? "rgba(236,160,230,.1)"
-                      : `linear-gradient(180deg,${ACCENT_GOLD},${ACCENT_PINK})`,
-                  borderRadius: "4px 4px 0 0",
+                  width: "100%", height: `${Math.max(count > 0 ? 6 : 2, pct)}%`, transformOrigin: "bottom",
+                  transform: `scaleY(${painted ? 1 : 0})`, borderRadius: "4px 4px 0 0",
+                  background: count === 0 ? "rgba(236,160,230,.1)" : `linear-gradient(180deg,${ACCENT_GOLD},${ACCENT_PINK})`,
                   boxShadow: isMode ? "0 0 14px rgba(255,180,60,.4)" : "none",
-                  transition: `height 250ms ${EASE}`,
+                  transition: `transform ${t.dur.normal} ${t.ease}`,
                 }}
               />
             </div>
@@ -420,7 +445,7 @@ function RatingHistogram({ rows }: { rows: readonly TacoApiRow[] }) {
       </div>
       <div style={{ display: "flex", gap: 6, fontFamily: BODY, fontWeight: 800, fontSize: 10, color: "#b07ec0", marginTop: 7, padding: "0 4px" }}>
         {buckets.map((_, i) => (
-          <span key={i} style={{ flex: 1, textAlign: "center", color: i === modeIndex ? ACCENT_GOLD : "#b07ec0" }}>
+          <span key={i} style={{ flex: 1, textAlign: "center", color: i === modeIndex ? ACCENT_GOLD : "#b07ec0", ...tabularNum }}>
             {i + 1}
           </span>
         ))}
@@ -430,11 +455,12 @@ function RatingHistogram({ rows }: { rows: readonly TacoApiRow[] }) {
 }
 
 function ByCity({ rows }: { rows: readonly TacoApiRow[] }) {
+  const painted = useFirstPaint();
   const stats = cityStats(rows);
   const maxCount = Math.max(1, ...stats.map((s) => s.count));
 
   return (
-    <div style={card({ flex: 1 })}>
+    <div className="fr-card" style={card({ flex: 1 })}>
       <div style={{ ...cardHeading, marginBottom: 2 }}>BY CITY</div>
       <div style={{ fontFamily: MONO, fontSize: 9, color: "#b07ec0", marginBottom: 14 }}>COUNT · AVG RATING</div>
       {stats.length === 0 ? (
@@ -454,14 +480,13 @@ function ByCity({ rows }: { rows: readonly TacoApiRow[] }) {
               <div style={{ flex: 1, height: 14, borderRadius: 4, background: "rgba(236,160,230,.12)", overflow: "hidden" }}>
                 <div
                   style={{
-                    width: `${Math.round((s.count / maxCount) * 100)}%`,
-                    height: "100%",
-                    background: `linear-gradient(90deg,${ACCENT_PINK},#ffb24d)`,
-                    transition: `width 250ms ${EASE}`,
+                    width: `${Math.round((s.count / maxCount) * 100)}%`, height: "100%", transformOrigin: "left",
+                    transform: `scaleX(${painted ? 1 : 0})`, background: `linear-gradient(90deg,${ACCENT_PINK},#ffb24d)`,
+                    transition: `transform ${t.dur.normal} ${t.ease}`,
                   }}
                 />
               </div>
-              <span style={{ width: 56, textAlign: "right", fontFamily: DISPLAY, fontSize: 14, color: "#fff" }}>
+              <span style={{ width: 56, textAlign: "right", fontFamily: DISPLAY, fontSize: 14, color: "#fff", ...tabularNum }}>
                 {s.count}{" "}
                 <span style={{ fontSize: 10, color: s.avg !== null && s.avg >= 8 ? "#7dffb0" : ACCENT_GOLD }}>
                   {s.avg !== null ? `·${s.avg.toFixed(1)}` : ""}
@@ -475,7 +500,7 @@ function ByCity({ rows }: { rows: readonly TacoApiRow[] }) {
   );
 }
 
-// --- quick-log form (optional nicety) ----------------------------------------
+// --- quick-log form -----------------------------------------------------------
 
 interface FormState {
   place: string;
@@ -495,34 +520,26 @@ const EMPTY_FORM: FormState = {
   price_tier: "$",
 };
 
-const fieldLabel: CSSProperties = {
-  fontFamily: BODY,
-  fontWeight: 800,
-  fontSize: 9,
-  letterSpacing: ".12em",
-  color: "#b07ec0",
-  marginBottom: 5,
-};
+const fieldLabel: CSSProperties = { display: "block", fontFamily: BODY, fontWeight: 800, fontSize: 9, letterSpacing: ".12em", color: "#b07ec0", marginBottom: 5 };
 
-const inputStyle: CSSProperties = {
-  width: "100%",
-  background: "#1c0f22",
-  boxShadow: `inset 0 0 0 1px rgba(236,160,230,.25)`,
-  border: "none",
-  borderRadius: 9,
-  padding: "10px 13px",
-  fontFamily: BODY,
-  fontWeight: 700,
-  fontSize: 14,
-  color: "#ffd9f4",
-  outline: "none",
-  boxSizing: "border-box",
-};
+const inputStyle: CSSProperties = { width: "100%", background: "#1c0f22", boxShadow: `inset 0 0 0 1px rgba(236,160,230,.25)`, border: "none", borderRadius: 9, padding: "10px 13px", fontFamily: BODY, fontWeight: 700, fontSize: 14, color: "#ffd9f4", boxSizing: "border-box" };
 
-function QuickLog({ onLogged }: { onLogged: () => void }) {
+/** A quick-log submission payload (no id yet — server assigns it). Same shape as FormState. */
+type TacoDraft = FormState;
+
+function QuickLog({ onSubmit }: { onSubmit: (draft: TacoDraft, photo: File | null) => Promise<void> }) {
   const [form, setForm] = useState<FormState>(EMPTY_FORM);
   const [submitting, setSubmitting] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  const [photo, setPhoto] = useState<File | null>(null);
+  const [preview, setPreview] = useState<string | null>(null);
+  const [photoErr, setPhotoErr] = useState<string | null>(null);
+  const fileRef = useRef<HTMLInputElement>(null);
+
+  // Sole owner of preview-URL revocation: this cleanup runs with the previous value when
+  // `preview` changes (replace) and with the current value on unmount. onPick/clearPhoto must
+  // NOT revoke inline or they'd double-free.
+  useEffect(() => () => { if (preview) URL.revokeObjectURL(preview); }, [preview]);
 
   const canSubmit =
     form.place.trim() !== "" &&
@@ -533,31 +550,46 @@ function QuickLog({ onLogged }: { onLogged: () => void }) {
   const update = <K extends keyof FormState>(key: K, value: FormState[K]) =>
     setForm((prev) => ({ ...prev, [key]: value }));
 
+  const onPick = (e: ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0] ?? null;
+    if (fileRef.current) fileRef.current.value = ""; // allow re-picking the same file
+    if (!file) return;
+    const err = validatePhoto(file);
+    if (err) { setPhotoErr(err); return; }
+    setPhotoErr(null);
+    setPhoto(file);
+    setPreview(URL.createObjectURL(file)); // the [preview] effect revokes the prior URL
+  };
+
+  const clearPhoto = () => {
+    setPreview(null); // the [preview] effect revokes the outgoing URL
+    setPhoto(null);
+    setPhotoErr(null);
+    if (fileRef.current) fileRef.current.value = "";
+  };
+
   const submit = async () => {
     if (!canSubmit || submitting) return;
     setSubmitting(true);
     setErrorMsg(null);
+    const draft: TacoDraft = {
+      place: form.place.trim(),
+      city: form.city.trim(),
+      state: form.state.trim(),
+      taco_type: form.taco_type.trim(),
+      rating: form.rating,
+      price_tier: form.price_tier,
+    };
+    const photoToSend = photo;
+    // Reset the text fields immediately for an optimistic feel; the parent owns the row list.
+    setForm(EMPTY_FORM);
     try {
-      const res = await fetch("/api/tacos", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({
-          place: form.place.trim(),
-          city: form.city.trim(),
-          state: form.state.trim(),
-          taco_type: form.taco_type.trim(),
-          rating: form.rating,
-          price_tier: form.price_tier,
-        }),
-      });
-      if (!res.ok) {
-        setErrorMsg("Could not log taco — try again.");
-        return;
-      }
-      setForm(EMPTY_FORM);
-      onLogged();
+      await onSubmit(draft, photoToSend);
+      clearPhoto(); // success → drop the now-logged photo
     } catch {
-      setErrorMsg("Network error — try again.");
+      // Roll back: restore the draft (photo stays selected) so the user can retry.
+      setForm({ ...draft });
+      setErrorMsg("Could not log taco — try again.");
     } finally {
       setSubmitting(false);
     }
@@ -567,41 +599,75 @@ function QuickLog({ onLogged }: { onLogged: () => void }) {
     <div style={{ width: 298, flex: "none" }}>
       <div style={{ background: "#0a0510", borderRadius: 38, boxShadow: "inset 0 0 0 2px #3a1e3e,0 0 0 6px #160a18,0 14px 40px rgba(0,0,0,.5)", padding: 12 }}>
         <div style={{ background: "radial-gradient(120% 80% at 50% 0%,#2a1430,#160a1c)", borderRadius: 28, overflow: "hidden", display: "flex", flexDirection: "column", paddingBottom: 16 }}>
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "12px 18px 8px", fontFamily: MONO, fontSize: 10, color: "#cf9fe0" }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "12px 18px 8px", fontFamily: MONO, fontSize: 10, color: "#cf9fe0" }} aria-hidden>
             <span>9:41</span>
             <span style={{ width: 54, height: 16, background: "#0a0510", borderRadius: "0 0 10px 10px" }} />
             <span>▮▮▮</span>
           </div>
-          <div style={{ padding: "6px 16px 0", display: "flex", flexDirection: "column", gap: 11 }}>
+          <form
+            onSubmit={(e) => { e.preventDefault(); void submit(); }}
+            style={{ padding: "6px 16px 0", display: "flex", flexDirection: "column", gap: 11 }}
+          >
             <div style={{ fontFamily: DISPLAY, fontSize: 22, color: "#ffd9f4", lineHeight: 1 }}>
-              LOG A TACO <span style={{ fontSize: 18 }}>🌮</span>
+              LOG A TACO <span aria-hidden style={{ fontSize: 18 }}>🌮</span>
             </div>
 
             <div>
-              <div style={fieldLabel}>PLACE</div>
-              <input style={inputStyle} value={form.place} placeholder="El Farolito" onChange={(e) => update("place", e.target.value)} />
+              <label htmlFor="taco-place" style={fieldLabel}>PLACE</label>
+              <input id="taco-place" style={inputStyle} value={form.place} placeholder="El Farolito" onChange={(e) => update("place", e.target.value)} />
             </div>
 
             <div style={{ display: "flex", gap: 9 }}>
               <div style={{ flex: 1.3 }}>
-                <div style={fieldLabel}>CITY</div>
-                <input style={inputStyle} value={form.city} placeholder="SF" onChange={(e) => update("city", e.target.value)} />
+                <label htmlFor="taco-city" style={fieldLabel}>CITY</label>
+                <input id="taco-city" style={inputStyle} value={form.city} placeholder="SF" onChange={(e) => update("city", e.target.value)} />
               </div>
               <div style={{ flex: 1 }}>
-                <div style={fieldLabel}>STATE</div>
-                <input style={inputStyle} value={form.state} placeholder="CA" onChange={(e) => update("state", e.target.value)} />
+                <label htmlFor="taco-state" style={fieldLabel}>STATE</label>
+                <input id="taco-state" style={inputStyle} value={form.state} placeholder="CA" onChange={(e) => update("state", e.target.value)} />
               </div>
             </div>
 
             <div>
-              <div style={fieldLabel}>TYPE</div>
-              <input style={inputStyle} value={form.taco_type} placeholder="Al Pastor" onChange={(e) => update("taco_type", e.target.value)} />
+              <label htmlFor="taco-type" style={fieldLabel}>TYPE</label>
+              <input id="taco-type" style={inputStyle} value={form.taco_type} placeholder="Al Pastor" onChange={(e) => update("taco_type", e.target.value)} />
             </div>
 
             <div>
+              <span style={fieldLabel}>PHOTO <span style={{ fontWeight: 700, color: "#cf9fe0" }}>· OPTIONAL</span></span>
+              {preview ? (
+                <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                  {/* eslint-disable-next-line @next/next/no-img-element -- local object URL preview */}
+                  <img src={preview} alt="Selected taco" style={{ width: 52, height: 52, objectFit: "cover", borderRadius: 10, boxShadow: `inset 0 0 0 1px ${FRAME_BORDER}` }} />
+                  <button
+                    type="button"
+                    className="fr-pressable"
+                    onClick={clearPhoto}
+                    style={{ flex: 1, height: 44, border: "none", borderRadius: 9, cursor: "pointer", background: "#1c0f22", boxShadow: `inset 0 0 0 1px rgba(236,160,230,.25)`, color: "#cf9fe0", fontFamily: BODY, fontWeight: 800, fontSize: 11, letterSpacing: ".08em" }}
+                  >
+                    REMOVE PHOTO
+                  </button>
+                </div>
+              ) : (
+                <button
+                  type="button"
+                  className="fr-pressable"
+                  onClick={() => fileRef.current?.click()}
+                  aria-describedby="taco-photo-hint"
+                  style={{ display: "flex", width: "100%", alignItems: "center", justifyContent: "center", gap: 8, height: 44, border: "none", borderRadius: 9, cursor: "pointer", background: "#1c0f22", boxShadow: `inset 0 0 0 1px rgba(236,160,230,.25)`, color: "#cf9fe0", fontFamily: BODY, fontWeight: 800, fontSize: 12, letterSpacing: ".06em" }}
+                >
+                  <span aria-hidden style={{ fontSize: 16 }}>📷</span> ADD PHOTO
+                </button>
+              )}
+              <input ref={fileRef} type="file" accept={PHOTO_ACCEPT} onChange={onPick} tabIndex={-1} aria-hidden style={srOnly} />
+              <div id="taco-photo-hint" style={{ marginTop: 6, fontFamily: BODY, fontWeight: 600, fontSize: 10, color: "#cf9fe0" }}>{PHOTO_HINT}</div>
+              {photoErr ? <div role="alert" style={{ marginTop: 6, fontFamily: BODY, fontWeight: 700, fontSize: 11, color: "#ff9a8a" }}>{photoErr}</div> : null}
+            </div>
+
+            <div role="radiogroup" aria-label="Rating out of 10">
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 6 }}>
                 <span style={fieldLabel}>RATING</span>
-                <span style={{ fontFamily: DISPLAY, fontSize: 20, color: ratingColor(form.rating), lineHeight: 1 }}>
+                <span style={{ fontFamily: DISPLAY, fontSize: 20, color: ratingColor(form.rating), lineHeight: 1, ...tabularNum }}>
                   {form.rating}
                   <span style={{ fontSize: 11, color: "#b07ec0" }}>/10</span>
                 </span>
@@ -614,18 +680,15 @@ function QuickLog({ onLogged }: { onLogged: () => void }) {
                     <button
                       key={value}
                       type="button"
-                      aria-label={`Rate ${value}`}
-                      className="tacos-press"
+                      role="radio"
+                      aria-checked={form.rating === value}
+                      aria-label={`Rate ${value} out of 10`}
+                      className="fr-pressable"
                       onClick={() => update("rating", value)}
                       style={{
-                        flex: 1,
-                        height: 24,
-                        border: "none",
-                        borderRadius: 4,
-                        cursor: "pointer",
+                        flex: 1, height: 24, border: "none", borderRadius: 4, cursor: "pointer",
                         background: lit ? `linear-gradient(180deg,${ACCENT_PINK},${ACCENT_PURPLE})` : "#1c0f22",
                         boxShadow: lit ? "none" : `inset 0 0 0 1px rgba(236,160,230,.25)`,
-                        transition: `transform 120ms ${EASE}`,
                       }}
                     />
                   );
@@ -633,8 +696,8 @@ function QuickLog({ onLogged }: { onLogged: () => void }) {
               </div>
             </div>
 
-            <div>
-              <div style={fieldLabel}>PRICE TIER</div>
+            <div role="radiogroup" aria-label="Price tier">
+              <span style={fieldLabel}>PRICE TIER</span>
               <div style={{ display: "flex", gap: 8 }}>
                 {PRICE_TIERS.map((tier) => {
                   const active = form.price_tier === tier;
@@ -642,20 +705,16 @@ function QuickLog({ onLogged }: { onLogged: () => void }) {
                     <button
                       key={tier}
                       type="button"
-                      className="tacos-press"
+                      role="radio"
+                      aria-checked={active}
+                      aria-label={PRICE_TIER_NAMES[tier]}
+                      className="fr-pressable"
                       onClick={() => update("price_tier", tier)}
                       style={{
-                        flex: 1,
-                        height: 44,
-                        border: "none",
-                        borderRadius: 9,
-                        cursor: "pointer",
-                        fontFamily: DISPLAY,
-                        fontSize: 18,
+                        flex: 1, height: 44, border: "none", borderRadius: 9, cursor: "pointer", fontFamily: DISPLAY, fontSize: 18,
                         background: active ? "linear-gradient(180deg,#ffb24d,#ff7a18)" : "#1c0f22",
                         color: active ? "#2a1000" : "#8a6a98",
                         boxShadow: active ? "0 0 14px rgba(255,150,40,.35)" : `inset 0 0 0 1px rgba(236,160,230,.25)`,
-                        transition: `transform 120ms ${EASE}`,
                       }}
                     >
                       {tier}
@@ -665,33 +724,28 @@ function QuickLog({ onLogged }: { onLogged: () => void }) {
               </div>
             </div>
 
+            <div aria-live="polite" style={srOnly}>
+              {errorMsg ?? ""}
+            </div>
             {errorMsg ? (
               <div style={{ fontFamily: BODY, fontWeight: 700, fontSize: 11, color: "#ff9a8a" }}>{errorMsg}</div>
             ) : null}
 
             <button
-              type="button"
-              className="tacos-press"
+              type="submit"
+              className="fr-pressable"
               disabled={!canSubmit || submitting}
-              onClick={submit}
-              style={{
-                height: 56,
-                border: "none",
-                borderRadius: 12,
-                cursor: canSubmit && !submitting ? "pointer" : "not-allowed",
-                background: `linear-gradient(90deg,${ACCENT_PINK},${ACCENT_PURPLE})`,
-                boxShadow: "0 0 20px rgba(220,90,255,.4)",
-                fontFamily: DISPLAY,
-                fontSize: 18,
-                color: "#fff",
-                letterSpacing: ".04em",
-                opacity: canSubmit && !submitting ? 1 : 0.5,
-                transition: `transform 120ms ${EASE}, opacity 120ms ${EASE}`,
-              }}
+              style={{ height: 56, border: "none", borderRadius: 12, cursor: canSubmit && !submitting ? "pointer" : "not-allowed", background: `linear-gradient(90deg,${ACCENT_PINK},${ACCENT_PURPLE})`, boxShadow: "0 0 20px rgba(220,90,255,.4)", fontFamily: DISPLAY, fontSize: 18, color: "#fff", letterSpacing: ".04em", opacity: canSubmit && !submitting ? 1 : 0.5 }}
             >
               {submitting ? "LOGGING…" : "LOG TACO →"}
             </button>
-          </div>
+
+            {!canSubmit ? (
+              <div style={{ fontFamily: BODY, fontWeight: 700, fontSize: 10, color: "#9a7aa8", textAlign: "center" }}>
+                add place, city, state &amp; type
+              </div>
+            ) : null}
+          </form>
         </div>
       </div>
     </div>
@@ -709,13 +763,31 @@ interface TacosSectionProps {
  * `/api/tacos`, rendered as a sortable table, a rating histogram, and a by-city grouping.
  */
 export function TacosSection({ tacos }: TacosSectionProps) {
-  const [rows, setRows] = useState<TacoApiRow[]>([]);
+  const [rows, setRows] = useState<LogRow[]>([]);
   const [loading, setLoading] = useState(true);
+  const [hasLoaded, setHasLoaded] = useState(false);
   const [loadError, setLoadError] = useState(false);
   const [sortKey, setSortKey] = useState<SortKey>("rating");
   const [sortDir, setSortDir] = useState<SortDir>("desc");
+  const [highlightId, setHighlightId] = useState<number | null>(null);
+  const [detailRow, setDetailRow] = useState<LogRow | null>(null);
+  const [photoWarn, setPhotoWarn] = useState<string | null>(null);
+  const tempId = useRef(-1);
+  // Object URLs we minted for instant photo previews — revoked on unmount to avoid leaks.
+  const objectUrls = useRef<Set<string>>(new Set());
+  const mounted = useRef(true);
+  useEffect(() => {
+    mounted.current = true;
+    return () => { mounted.current = false; objectUrls.current.forEach((u) => URL.revokeObjectURL(u)); };
+  }, []);
+
+  /** Revoke + forget a tracked preview object URL. */
+  const dropObjectUrl = useCallback((url?: string) => {
+    if (url) { URL.revokeObjectURL(url); objectUrls.current.delete(url); }
+  }, []);
 
   const load = useCallback(async () => {
+    // Only the initial empty load shows the full skeleton; refetches keep rows visible.
     setLoading(true);
     setLoadError(false);
     try {
@@ -730,114 +802,155 @@ export function TacosSection({ tacos }: TacosSectionProps) {
       setLoadError(true);
     } finally {
       setLoading(false);
+      setHasLoaded(true);
     }
   }, []);
 
+  useEffect(() => { void load(); }, [load]);
+
+  /**
+   * Optimistic submit: prepend a temp row immediately, POST to create, then (if a photo was
+   * picked) upload it in a second hop and reconcile the row. A create failure rolls the row
+   * back and re-throws so QuickLog restores its draft; a photo-upload failure leaves the taco
+   * saved and surfaces a non-fatal warning (the taco is real even if its photo didn't land).
+   */
+  const handleSubmit = useCallback(async (draft: TacoDraft, photo: File | null) => {
+    const id = tempId.current;
+    tempId.current -= 1;
+    const now = new Date().toISOString().slice(0, 10);
+    const localPhotoUrl = photo ? URL.createObjectURL(photo) : undefined;
+    if (localPhotoUrl) objectUrls.current.add(localPhotoUrl);
+    const optimistic: LogRow = { ...draft, id, notes: null, has_photo: false, visited_at: now, created_at: now, localPhotoUrl };
+    setRows((prev) => [optimistic, ...prev]);
+    setHighlightId(id);
+    setPhotoWarn(null);
+
+    let created: TacoApiRow;
+    try {
+      const res = await fetch("/api/tacos", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(draft) });
+      if (!res.ok) throw new Error("POST failed");
+      const serverRow = parsePostResponse(await res.json());
+      if (!mounted.current) return;
+      if (!serverRow) {
+        // Couldn't parse the row — fall back to a silent background refetch (photo upload skipped).
+        dropObjectUrl(localPhotoUrl);
+        void load();
+        return;
+      }
+      created = serverRow;
+      // Reconcile: swap the temp row for the server row, keeping the local preview while the
+      // photo (if any) is still uploading — has_photo is still false at this point.
+      setRows((prev) => prev.map((r) => (r.id === id ? { ...created, localPhotoUrl } : r)));
+      setHighlightId(created.id);
+    } catch (err) {
+      // Roll back the optimistic row and re-throw so the form restores its draft.
+      setRows((prev) => prev.filter((r) => r.id !== id));
+      setHighlightId(null);
+      dropObjectUrl(localPhotoUrl);
+      throw err;
+    }
+
+    // Taco is saved. Attach the photo best-effort — a failure here does NOT roll back the taco.
+    if (photo) {
+      try {
+        const fd = new FormData();
+        fd.append("taco_id", String(created.id));
+        fd.append("photo", photo);
+        const res = await fetch("/api/tacos/photo", { method: "POST", body: fd });
+        if (!res.ok) throw new Error("photo upload failed");
+        const updated = parsePostResponse(await res.json());
+        if (!mounted.current) return;
+        if (updated) {
+          // Photo is persisted: switch the thumbnail to the served URL and free the local blob.
+          setRows((prev) => prev.map((r) => (r.id === created.id ? { ...updated } : r)));
+          dropObjectUrl(localPhotoUrl);
+        } else {
+          // Saved but response unparseable — refetch so has_photo/served URL reconcile.
+          dropObjectUrl(localPhotoUrl);
+          void load();
+        }
+      } catch {
+        if (!mounted.current) return;
+        // Photo failed but the taco is real: drop the misleading local preview so the row's
+        // (no-photo) state matches the warning below.
+        setRows((prev) => prev.map((r) => (r.id === created.id ? { ...r, localPhotoUrl: undefined } : r)));
+        dropObjectUrl(localPhotoUrl);
+        setPhotoWarn(`Logged ${created.place}, but the photo didn’t upload. Try adding it again later.`);
+      }
+    }
+  }, [load, dropObjectUrl]);
+
+  // Clear the new-row highlight shortly after it appears.
   useEffect(() => {
-    void load();
-  }, [load]);
+    if (highlightId === null) return;
+    const timer = setTimeout(() => setHighlightId(null), 1400);
+    return () => clearTimeout(timer);
+  }, [highlightId]);
 
   const onSort = (key: SortKey) => {
     if (key === sortKey) {
       setSortDir((d) => (d === "desc" ? "asc" : "desc"));
     } else {
       setSortKey(key);
-      // Sensible defaults: numbers/dates start desc, text starts asc.
-      setSortDir(key === "rating" || key === "visited_at" ? "desc" : "asc");
+      // Sensible defaults: rating starts desc, text starts asc.
+      setSortDir(key === "rating" ? "desc" : "asc");
     }
   };
 
-  const sortedRows = useMemo(
-    () => [...rows].sort((a, b) => compareRows(a, b, sortKey, sortDir)),
-    [rows, sortKey, sortDir],
-  );
+  const sortedRows = useMemo(() => [...rows].sort((a, b) => compareRows(a, b, sortKey, sortDir)), [rows, sortKey, sortDir]);
 
   // KPI strip is driven by the summary prop (authoritative, non-PII roll-up).
   const avgRating = tacos.avg_rating;
 
+  // Show the full skeleton only on the initial load (empty + never loaded).
+  const showSkeleton = loading && !hasLoaded;
+
   return (
     <div style={{ maxWidth: 1180, margin: "0 auto", display: "flex", flexDirection: "column", gap: 13 }}>
-      <style>{`
-        .tacos-row:hover { background: rgba(236,160,230,.06); }
-        .tacos-sort:hover { color: #ffd9f4; }
-        .tacos-sort:active { transform: scale(0.97); }
-        .tacos-press:active { transform: scale(0.97); }
-        @media (prefers-reduced-motion: reduce) {
-          .tacos-row, .tacos-sort, .tacos-press { transition: none !important; }
-          .tacos-sort:active, .tacos-press:active { transform: none !important; }
-        }
-      `}</style>
+      <div aria-live="polite" style={srOnly}>
+        {showSkeleton ? "Loading taco log" : loadError ? "Could not load the taco log" : ""}
+      </div>
+
+      {photoWarn ? (
+        <div
+          role="status"
+          style={{ fontFamily: BODY, fontWeight: 700, fontSize: 12, color: "#ffd36b", background: "rgba(80,50,16,.4)", boxShadow: `inset 0 0 0 1px rgba(255,180,80,.3)`, borderRadius: 9, padding: "9px 13px" }}
+        >
+          {photoWarn}
+        </div>
+      ) : null}
 
       {/* KPI strip */}
       <div style={{ display: "flex", gap: 13 }}>
-        <KpiCard
-          label="TOTAL LOGGED"
-          value={fmtNum(tacos.total)}
-          sub={tacos.total === 0 ? "NO TACOS YET" : "ALL TIME"}
-          valueColor="#fff"
-          subColor={ACCENT_PINK}
-        />
-        <KpiCard
-          label="AVG RATING"
-          value={avgRating === null ? "—" : avgRating.toFixed(1)}
-          sub="OUT OF 10"
-          valueColor={ACCENT_GOLD}
-          subColor="#cf9fe0"
-        />
-        <KpiCard
-          label="LAST SPOT"
-          value={tacos.last_spot ?? "—"}
-          sub={tacos.last_spot ? "MOST RECENT VISIT" : "AWAITING FIRST LOG"}
-          valueColor="#fff"
-          subColor="#cf9fe0"
-          flex={1.4}
-        />
-        <KpiCard
-          label="CITIES"
-          value={fmtNum(tacos.cities)}
-          sub={tacos.cities === 1 ? "1 CITY" : "DISTINCT CITIES"}
-          valueColor="#ffa24d"
-          subColor="#cf9fe0"
-        />
+        <KpiCard label="TOTAL LOGGED" value={fmtNum(tacos.total)} sub={tacos.total === 0 ? "NO TACOS YET" : "ALL TIME"} valueColor="#fff" subColor={ACCENT_PINK} />
+        <KpiCard label="AVG RATING" value={avgRating === null ? "—" : avgRating.toFixed(1)} sub="OUT OF 10" valueColor={ACCENT_GOLD} subColor="#cf9fe0" />
+        <KpiCard label="LAST SPOT" value={tacos.last_spot ?? "—"} sub={tacos.last_spot ? "MOST RECENT VISIT" : "AWAITING FIRST LOG"} valueColor="#fff" subColor="#cf9fe0" flex={1.4} />
+        <KpiCard label="CITIES" value={fmtNum(tacos.cities)} sub={tacos.cities === 1 ? "1 CITY" : "DISTINCT CITIES"} valueColor="#ffa24d" subColor="#cf9fe0" />
       </div>
 
       {/* table + quick-log phone */}
       <div style={{ display: "flex", gap: 13, alignItems: "flex-start" }}>
-        {loading ? (
-          <div style={card({ flex: 1.6 })}>
-            <div style={{ fontFamily: BODY, fontSize: 13, color: "#9a7aa8", padding: "22px 8px", textAlign: "center" }}>
-              Loading the log…
-            </div>
-          </div>
-        ) : loadError ? (
-          <div style={card({ flex: 1.6 })}>
+        {showSkeleton ? (
+          <LogSkeleton />
+        ) : loadError && rows.length === 0 ? (
+          <div className="fr-card" style={card({ flex: 1.6 })}>
             <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 12, padding: "22px 8px" }}>
               <div style={{ fontFamily: BODY, fontSize: 13, color: "#ff9a8a" }}>Could not load the taco log.</div>
               <button
                 type="button"
-                className="tacos-press"
+                className="fr-pressable"
                 onClick={() => void load()}
-                style={{
-                  border: "none",
-                  borderRadius: 9,
-                  cursor: "pointer",
-                  padding: "9px 18px",
-                  background: `linear-gradient(90deg,${ACCENT_PINK},${ACCENT_PURPLE})`,
-                  fontFamily: DISPLAY,
-                  fontSize: 14,
-                  color: "#fff",
-                  transition: `transform 120ms ${EASE}`,
-                }}
+                style={{ border: "none", borderRadius: 9, cursor: "pointer", padding: "9px 18px", background: `linear-gradient(90deg,${ACCENT_PINK},${ACCENT_PURPLE})`, fontFamily: DISPLAY, fontSize: 14, color: "#fff" }}
               >
                 RETRY
               </button>
             </div>
           </div>
         ) : (
-          <LogTable rows={sortedRows} sortKey={sortKey} sortDir={sortDir} onSort={onSort} />
+          <LogTable rows={sortedRows} sortKey={sortKey} sortDir={sortDir} onSort={onSort} highlightId={highlightId} onOpenDetail={setDetailRow} />
         )}
 
-        <QuickLog onLogged={() => void load()} />
+        <QuickLog onSubmit={handleSubmit} />
       </div>
 
       {/* histogram + cities */}
@@ -845,6 +958,21 @@ export function TacosSection({ tacos }: TacosSectionProps) {
         <RatingHistogram rows={rows} />
         <ByCity rows={rows} />
       </div>
+
+      {detailRow ? (
+        <EntryDetail
+          row={{ ...detailRow, type: detailRow.taco_type }}
+          apiBase="/api/tacos"
+          typeKey="taco_type"
+          typeLabel="TYPE"
+          emoji="🌮"
+          palette={TACO_DETAIL_PALETTE}
+          onClose={(changed) => {
+            setDetailRow(null);
+            if (changed) void load();
+          }}
+        />
+      ) : null}
     </div>
   );
 }

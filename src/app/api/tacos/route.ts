@@ -15,6 +15,7 @@ import {
   error,
   json,
   readJson,
+  toPublicTaco,
   validateCreate,
   type TacoRow,
 } from "./shared";
@@ -39,7 +40,7 @@ const INSERT_SQL = `
 export function GET(): Response {
   try {
     const rows = getDb().prepare(LIST_SQL).all() as TacoRow[];
-    return json({ tacos: rows });
+    return json({ tacos: rows.map(toPublicTaco) });
   } catch {
     return error("failed to list tacos", 500);
   }
@@ -73,7 +74,7 @@ export async function POST(request: Request): Promise<Response> {
         notes,
         visited_at,
       }) as TacoRow;
-    return json({ taco: created }, 201);
+    return json({ taco: toPublicTaco(created) }, 201);
   } catch {
     return error("failed to create taco", 500);
   }

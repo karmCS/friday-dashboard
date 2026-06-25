@@ -2,6 +2,9 @@
 
 import { CSSProperties } from "react";
 
+import { t, tabularNum } from "@/components/dashboard/tokens";
+import { fmtNum, fmtPct } from "@/lib/format";
+
 import type { DeficitLanding } from "@/lib/types";
 
 /**
@@ -13,76 +16,65 @@ import type { DeficitLanding } from "@/lib/types";
  * The original Questism design (Friday.dc.html, LANDING) also showed: an avg-time KPI, a
  * visit→signup conversion + signup count, a 14-day traffic bar chart, a per-source % breakdown,
  * and a per-page hit-count list. NONE of those are in the snapshot, so they are rendered as
- * clearly-labelled placeholders ("— · not yet wired", muted sample bars) — never fabricated.
+ * clearly-labelled placeholders ("— · not yet wired", honest empty states) — never fabricated.
  *
  * Real fields render real values. Pageviews-per-visit is a safe derived value (pageviews/visitors),
  * not an invented number. Everything else is honestly marked pending.
  */
 
-const DISPLAY = "'Black Han Sans',sans-serif";
-const BODY = "'Barlow',sans-serif";
-const MONO = "'JetBrains Mono',monospace";
-
 // Questism teal frame, shared by every card.
 const TEAL_FRAME = "linear-gradient(160deg,#163a55,#0b2033)";
-const EASE = "cubic-bezier(0.23,1,0.32,1)";
-
-// Muted sample-bar heights for the not-yet-wired 14-day traffic chart. Deliberately flat-ish and
-// low-contrast so they read as a placeholder, not as data.
-const SAMPLE_BAR_HEIGHTS = [38, 44, 34, 47, 40, 36, 30, 45, 42, 39, 33, 48, 41, 37];
-
-const fmtNum = (n: number): string => n.toLocaleString("en-US");
 
 /** A teal Questism card frame with the angled clip-path corner. */
 const card = (extra?: CSSProperties): CSSProperties => ({
   background: TEAL_FRAME,
-  clipPath:
-    "polygon(0 0,calc(100% - 14px) 0,100% 14px,100% 100%,14px 100%,0 calc(100% - 14px))",
-  boxShadow: "inset 0 0 0 2px rgba(150,212,236,.42)",
+  clipPath: t.clipCard,
+  boxShadow: `inset 0 0 0 2px ${t.frame}`,
   padding: "18px 20px",
   ...extra,
 });
 
 const kicker: CSSProperties = {
-  fontFamily: BODY,
+  fontFamily: t.font.body,
   fontWeight: 700,
   fontSize: 10,
   letterSpacing: ".14em",
-  color: "#7fb0d2",
+  color: t.textMuted,
 };
 
 const kpiNum = (color: string): CSSProperties => ({
-  fontFamily: DISPLAY,
+  fontFamily: t.font.display,
   fontSize: 40,
   lineHeight: 1,
   color,
   marginTop: 4,
+  ...tabularNum,
 });
 
 const kpiSub: CSSProperties = {
-  fontFamily: BODY,
+  fontFamily: t.font.body,
   fontWeight: 700,
   fontSize: 11,
-  color: "#7fb0d2",
+  color: t.textMuted,
   marginTop: 4,
 };
 
 const sectionTitle: CSSProperties = {
-  fontFamily: DISPLAY,
+  fontFamily: t.font.display,
   fontSize: 17,
-  color: "#eafaff",
+  color: t.text,
   letterSpacing: ".03em",
 };
 
 /** Muted "not yet wired" tag — the consistent honesty marker across placeholder regions. */
 const pendingTag: CSSProperties = {
-  fontFamily: MONO,
+  fontFamily: t.font.mono,
   fontSize: 10,
-  color: "#5d7785",
+  color: t.textDim,
   letterSpacing: ".04em",
 };
 
-/** A KPI card that brightens its frame on hover (transform/opacity-safe transition only). */
+/** A KPI card that brightens its frame on hover/focus (handled by the shared `fr-card` class). */
 function KpiCard({
   label,
   value,
@@ -98,20 +90,12 @@ function KpiCard({
 }) {
   return (
     <div
-      className="ls-card"
+      className="fr-card"
       style={card({
         flex: flex ?? 1,
         display: "flex",
         flexDirection: "column",
-        transition: `transform 160ms ${EASE}, box-shadow 160ms ${EASE}`,
       })}
-      onMouseEnter={(e) => {
-        e.currentTarget.style.boxShadow =
-          "inset 0 0 0 2px rgba(150,212,236,.7),0 0 22px rgba(80,200,255,.3)";
-      }}
-      onMouseLeave={(e) => {
-        e.currentTarget.style.boxShadow = "inset 0 0 0 2px rgba(150,212,236,.42)";
-      }}
     >
       <div style={kicker}>{label}</div>
       <div style={kpiNum(valueColor)}>{value}</div>
@@ -122,7 +106,7 @@ function KpiCard({
 
 /**
  * Landing section — KPI strip (visitors, pageviews + derived per-visit, bounce/avg-time,
- * visit→signup placeholder), a placeholder traffic chart, and SOURCES + TOP PAGES panels.
+ * visit→signup placeholder), an honest empty traffic region, and SOURCES + TOP PAGES panels.
  */
 export function LandingSection({ landing }: { landing: DeficitLanding }) {
   const pvPerVisit =
@@ -132,19 +116,13 @@ export function LandingSection({ landing }: { landing: DeficitLanding }) {
 
   return (
     <div style={{ maxWidth: 1180, margin: "0 auto", display: "flex", flexDirection: "column", gap: 13 }}>
-      <style>{`
-        @media (prefers-reduced-motion: reduce) {
-          .ls-card { transition: none !important; }
-        }
-      `}</style>
-
       {/* KPI strip — real values where we have them, honest placeholders where we don't. */}
       <div style={{ display: "flex", gap: 13 }}>
         {/* VISITORS · 7D — real. WoW comparison isn't in the snapshot, so it's marked pending. */}
         <KpiCard
           label="VISITORS · 7D"
           value={fmtNum(landing.visitors_7d)}
-          valueColor="#fff"
+          valueColor={t.text}
           sub={<span style={pendingTag}>WoW — · not yet wired</span>}
         />
 
@@ -152,15 +130,15 @@ export function LandingSection({ landing }: { landing: DeficitLanding }) {
         <KpiCard
           label="PAGEVIEWS · 7D"
           value={fmtNum(landing.pageviews_7d)}
-          valueColor="#fff"
+          valueColor={t.text}
           sub={pvPerVisit === "—" ? "NO TRAFFIC YET" : `${pvPerVisit} / VISIT`}
         />
 
         {/* BOUNCE — real (nullable → "—"). Avg-time has no source, so it's a labelled placeholder. */}
         <KpiCard
           label="BOUNCE RATE · 7D"
-          value={landing.bounce_rate === null ? "—" : `${landing.bounce_rate}%`}
-          valueColor="#8fe3ff"
+          value={fmtPct(landing.bounce_rate)}
+          valueColor={t.accent}
           sub={
             landing.bounce_rate === null ? (
               <span style={pendingTag}>no bounce data yet</span>
@@ -175,38 +153,38 @@ export function LandingSection({ landing }: { landing: DeficitLanding }) {
         <KpiCard
           label="AD SPEND · 7D"
           value={`$${fmtNum(landing.ad_spend_7d)}`}
-          valueColor="#ffd36b"
+          valueColor={t.amber}
           sub={<span style={pendingTag}>visit→signup — · not yet wired</span>}
         />
       </div>
 
       <div style={{ display: "flex", gap: 13, alignItems: "stretch" }}>
-        {/* TRAFFIC — 14-day daily breakdown is NOT in the snapshot. Muted sample bars, clearly
-            labelled as a placeholder. No real per-day numbers are implied. */}
+        {/* TRAFFIC — 14-day daily breakdown is NOT in the snapshot. Honest empty state: no faux
+            bars, just a dashed frame and a clear PENDING label so nothing reads as real data. */}
         <div style={card({ flex: 1.5, display: "flex", flexDirection: "column" })}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 14 }}>
             <div style={sectionTitle}>TRAFFIC · GETDEFICIT.COM</div>
             <div style={pendingTag}>14-DAY · NOT YET WIRED</div>
           </div>
           <div
-            aria-hidden="true"
-            style={{ display: "flex", gap: 6, alignItems: "flex-end", height: 130, opacity: 0.45 }}
+            style={{
+              flex: 1,
+              minHeight: 130,
+              display: "flex",
+              flexDirection: "column",
+              alignItems: "center",
+              justifyContent: "center",
+              gap: 8,
+              border: `1px dashed ${t.frame}`,
+              borderRadius: 4,
+            }}
           >
-            {SAMPLE_BAR_HEIGHTS.map((h, i) => (
-              <div key={i} style={{ flex: 1, display: "flex", flexDirection: "column", justifyContent: "flex-end", height: "100%" }}>
-                <div
-                  style={{
-                    height: `${h}%`,
-                    background: "linear-gradient(180deg,#3a6f90,#274a63)",
-                    borderRadius: "3px 3px 0 0",
-                    boxShadow: "inset 0 0 0 1px rgba(120,180,210,.2)",
-                  }}
-                />
-              </div>
-            ))}
-          </div>
-          <div style={{ ...pendingTag, marginTop: 12 }}>
-            Sample shape only — daily traffic series isn&apos;t in the snapshot yet.
+            <div style={{ fontFamily: t.font.mono, fontSize: 12, color: t.textMuted, letterSpacing: ".08em" }}>
+              PENDING — NOT YET WIRED
+            </div>
+            <div style={{ ...pendingTag, textAlign: "center" }}>
+              Daily traffic series isn&apos;t in the snapshot yet.
+            </div>
           </div>
         </div>
 
@@ -222,8 +200,8 @@ export function LandingSection({ landing }: { landing: DeficitLanding }) {
           ) : (
             <div>
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
-                <span style={{ fontFamily: BODY, fontWeight: 700, fontSize: 13, color: "#bfe0f0" }}>Top source</span>
-                <span style={{ fontFamily: MONO, fontSize: 11, color: "#8fe3ff" }}>{landing.top_source}</span>
+                <span style={{ fontFamily: t.font.body, fontWeight: 700, fontSize: 13, color: t.textBody }}>Top source</span>
+                <span style={{ fontFamily: t.font.mono, fontSize: 11, color: t.accent }}>{landing.top_source}</span>
               </div>
               <div style={{ ...pendingTag, marginTop: 8 }}>
                 per-source % breakdown — · not yet wired

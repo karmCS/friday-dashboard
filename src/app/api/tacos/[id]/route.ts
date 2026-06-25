@@ -15,6 +15,7 @@ import {
   json,
   parseId,
   readJson,
+  toPublicTaco,
   validatePatch,
   type TacoPatchInput,
   type TacoRow,
@@ -55,7 +56,7 @@ export async function GET(_request: Request, context: RouteContext): Promise<Res
   try {
     const row = getDb().prepare(SELECT_SQL).get(id) as TacoRow | undefined;
     if (!row) return error("taco not found", 404);
-    return json({ taco: row });
+    return json({ taco: toPublicTaco(row) });
   } catch {
     return error("failed to fetch taco", 500);
   }
@@ -90,7 +91,7 @@ export async function PATCH(request: Request, context: RouteContext): Promise<Re
   try {
     const updated = getDb().prepare(updateSql).get(params) as TacoRow | undefined;
     if (!updated) return error("taco not found", 404);
-    return json({ taco: updated });
+    return json({ taco: toPublicTaco(updated) });
   } catch {
     return error("failed to update taco", 500);
   }

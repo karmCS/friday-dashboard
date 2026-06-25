@@ -13,6 +13,8 @@
  * free-text) never enters this schema — it stays in Supabase and is read live.
  */
 
+import type { GradeId } from "@/components/dashboard/sections/shared/GradeBadge";
+
 // --- Deficit (app) -----------------------------------------------------------
 
 export interface DeficitUsers {
@@ -141,7 +143,10 @@ export interface Infra {
   last_deploy: InfraLastDeploy;
 }
 
-// --- Fitness (from the fitness-tracker snapshot sketch) ----------------------
+// --- Fitness (calendar-based model) ------------------------------------------
+// As of the 2026-06-24 pivot the fitness section is a weekly workout CALENDAR of general
+// labels (not per-set logging), plus steps (iOS Shortcut), cardio (Strava), and bodyweight.
+// The snapshot slice carries the non-PII roll-up.
 
 export interface FitnessBodyweightLatest {
   /** ISO date of the latest bodyweight entry, or null */
@@ -150,22 +155,14 @@ export interface FitnessBodyweightLatest {
   weight: number | null;
 }
 
-export interface FitnessLastLiftingSession {
-  /** ISO date of the last lifting session, or null */
+/** The most recent workout-calendar entry (general label + coarse type). */
+export interface FitnessLastWorkout {
+  /** ISO date of the last logged workout, or null */
   date: string | null;
-  /** muscle groups hit that session (empty when none) */
-  muscle_groups: string[];
-}
-
-export interface FitnessLastCardioSession {
-  /** ISO date of the last cardio session, or null */
-  date: string | null;
-  /** activity type (e.g. "run"), or null */
-  activity: string | null;
-  /** duration in minutes, or null */
-  duration_min: number | null;
-  /** average heart rate, or null */
-  avg_hr: number | null;
+  /** the general label, e.g. "Upper Body", or null */
+  label: string | null;
+  /** 'lift' | 'cardio' | 'rest', or null */
+  type: string | null;
 }
 
 export interface Fitness {
@@ -174,10 +171,11 @@ export interface Fitness {
   bodyweight_latest: FitnessBodyweightLatest;
   /** 7-day average step count, or null */
   steps_7d_avg: number | null;
+  /** lifting workouts on the calendar in the last 7 days */
   lifting_sessions_7d: number;
+  /** cardio sessions (Strava) in the last 7 days */
   cardio_sessions_7d: number;
-  last_lifting_session: FitnessLastLiftingSession;
-  last_cardio_session: FitnessLastCardioSession;
+  last_workout: FitnessLastWorkout;
 }
 
 // --- Tacos (Taco Tracker summary) --------------------------------------------
@@ -196,6 +194,60 @@ export interface Tacos {
   cities: number;
 }
 
+// --- Cafes (Cafe Tracker summary) --------------------------------------------
+
+/**
+ * Non-PII cafe-log summary for the Overview card and headless CC. Same shape as {@link Tacos};
+ * full rows (with notes/photos) are read from `/api/cafes`.
+ */
+export interface Cafes {
+  total: number;
+  /** mean rating across all logged cafes (0–10), or null when none logged */
+  avg_rating: number | null;
+  /** name of the most recently visited spot, or null */
+  last_spot: string | null;
+  /** distinct cities logged */
+  cities: number;
+}
+
+// --- Grades (Questism stat cards) --------------------------------------------
+// Dynamic letter grades across three domains + a composite. Grade ids are the GradeBadge
+// union (the single source of truth for which grades render). See lib/grades.ts for the
+// thresholds + streak ladder, GradeBadge.tsx for the visuals.
+
+/** BODY — weekly fitness; `streak_weeks` of consecutive S-weeks raise the permanent floor. */
+export interface BodyGrade {
+  grade: GradeId;
+  streak_weeks: number;
+  /** this week's base grade before streak elevation */
+  this_week_base: GradeId;
+}
+
+/** BUILDER — cumulative Deficit progress (MRR-primary, users-secondary, crash-free floor). */
+export interface BuilderGrade {
+  grade: GradeId;
+  mrr: number;
+  users: number;
+  /** crash-free rate (percent) the grade was gated on, or null when not measurable */
+  crash_free: number | null;
+}
+
+/** SYSTEM — rolling-30d infra health. */
+export interface SystemGrade {
+  grade: GradeId;
+  /** uptime over 30d (percent), or null when telemetry is unwired */
+  uptime_30d: number | null;
+  services_down: number;
+}
+
+export interface Grades {
+  body: BodyGrade;
+  builder: BuilderGrade;
+  system: SystemGrade;
+  /** composite of the three (weighted), as a single grade */
+  total: GradeId;
+}
+
 // --- Top-level snapshot ------------------------------------------------------
 
 export interface Snapshot {
@@ -207,8 +259,12 @@ export interface Snapshot {
   portfolio: Portfolio;
   social: Social;
   infra: Infra;
-  /** personal fitness slice (fitness-tracker.md) */
+  /** personal fitness slice (calendar + steps + cardio + bodyweight) */
   fitness: Fitness;
   /** personal taco-log summary (Taco Tracker) */
   tacos: Tacos;
+  /** personal cafe-log summary (Cafe Tracker) */
+  cafes: Cafes;
+  /** Questism letter grades: BODY (fitness) · BUILDER (Deficit) · SYSTEM (infra) · TOTAL */
+  grades: Grades;
 }

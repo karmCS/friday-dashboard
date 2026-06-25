@@ -1,27 +1,20 @@
 "use client";
 
 import { CSSProperties } from "react";
-
-const DISPLAY = "'Black Han Sans',sans-serif";
-const BODY = "'Barlow',sans-serif";
-const JP = "'Zen Kaku Gothic New',sans-serif";
-
-// Emil-style craft: one custom ease, short transform/opacity-only transitions.
-const EASE = "cubic-bezier(0.23,1,0.32,1)";
+import { t } from "@/components/dashboard/tokens";
 
 // The channels that light up at launch (matches design/Friday.dc.html lines 721–724).
 const CHANNELS: readonly string[] = ["X / Twitter", "YouTube", "Instagram", "TikTok"];
 
 const chip: CSSProperties = {
-  fontFamily: BODY,
+  fontFamily: t.font.body,
   fontWeight: 700,
   fontSize: 12,
-  color: "#5f7c8c",
+  color: t.textMuted,
   background: "rgba(120,170,200,.06)",
-  boxShadow: "inset 0 0 0 1px rgba(120,170,200,.2)",
+  boxShadow: `inset 0 0 0 1px ${t.frame}`,
   borderRadius: 99,
   padding: "9px 18px",
-  transition: `box-shadow 180ms ${EASE}, color 180ms ${EASE}`,
 };
 
 export function SocialSection() {
@@ -34,7 +27,7 @@ export function SocialSection() {
         textAlign: "center",
         background: "linear-gradient(160deg,#11202e,#0a141d)",
         clipPath: "polygon(0 0,calc(100% - 22px) 0,100% 22px,100% 100%,22px 100%,0 calc(100% - 22px))",
-        boxShadow: "inset 0 0 0 2px rgba(120,170,200,.32)",
+        boxShadow: `inset 0 0 0 2px ${t.frame}`,
         padding: "48px 44px",
       }}
     >
@@ -46,7 +39,7 @@ export function SocialSection() {
           margin: "0 auto 22px",
           borderRadius: "50%",
           background: "rgba(120,170,200,.08)",
-          boxShadow: "inset 0 0 0 2px rgba(120,170,200,.3)",
+          boxShadow: `inset 0 0 0 2px ${t.frame}`,
           display: "flex",
           alignItems: "center",
           justifyContent: "center",
@@ -57,16 +50,18 @@ export function SocialSection() {
         🔒
       </div>
 
-      <div style={{ fontFamily: DISPLAY, fontSize: 34, color: "#cfe2ee", letterSpacing: ".04em" }}>
+      <div style={{ fontFamily: t.font.display, fontSize: 34, color: t.text, letterSpacing: ".04em" }}>
         COMING SOON{" "}
-        <span style={{ fontFamily: JP, fontWeight: 700, fontSize: 24, color: "#6f97ac" }}>（準備中）</span>
+        <span style={{ fontFamily: t.font.jp, fontWeight: 700, fontSize: 24, color: t.accent2 }}>
+          （準備中）
+        </span>
       </div>
 
       <div
         style={{
-          fontFamily: BODY,
+          fontFamily: t.font.body,
           fontSize: 14,
-          color: "#7f9fb6",
+          color: t.textBody,
           marginTop: 14,
           lineHeight: 1.6,
           maxWidth: 480,
@@ -80,29 +75,11 @@ export function SocialSection() {
 
       <div style={{ display: "flex", gap: 10, justifyContent: "center", flexWrap: "wrap", marginTop: 26 }}>
         {CHANNELS.map((name) => (
-          <span
-            key={name}
-            style={chip}
-            onMouseEnter={(e) => {
-              e.currentTarget.style.boxShadow = "inset 0 0 0 1px rgba(120,170,200,.45)";
-              e.currentTarget.style.color = "#9fc4dc";
-            }}
-            onMouseLeave={(e) => {
-              e.currentTarget.style.boxShadow = "inset 0 0 0 1px rgba(120,170,200,.2)";
-              e.currentTarget.style.color = "#5f7c8c";
-            }}
-          >
+          <span key={name} style={chip}>
             {name}
           </span>
         ))}
       </div>
-
-      {/* reduced-motion guard (scoped to this section). */}
-      <style>{`
-        @media (prefers-reduced-motion: reduce) {
-          [data-social] * { transition: none !important; }
-        }
-      `}</style>
     </div>
   );
 }
