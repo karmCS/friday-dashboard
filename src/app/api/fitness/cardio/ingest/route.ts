@@ -36,25 +36,38 @@ const MAX_BYTES = 100 * 1024 * 1024;
 const MAX_WORKOUTS = 2000; // sanity cap on one batch (years of workouts fit)
 
 /**
- * TEMP diagnostic: logs the shape of an HAE payload — total bytes, the keys under `data`, the
- * workout count, and every metric's name + sample-point count + units — so we can see exactly
- * which data types were included (and which are the heavy ones). Remove after inspection.
+ * TEMP diagnostic: logs the structure of WHATEVER body arrives (any shape) so we can see HAE's
+ * real envelope + field names — top-level keys, keys under `data`, array lengths, the first
+ * workout's keys, a truncated sample workout, and metric names. Runs unconditionally (a 400/413
+ * never reaches the HAE branch). Remove once the shape is known.
  */
-function logHaeShape(body: Record<string, unknown>, bytes: number): void {
-  const data = (body.data ?? {}) as Record<string, unknown>;
-  const workouts = Array.isArray(data.workouts) ? data.workouts : [];
-  const metrics = Array.isArray(data.metrics) ? data.metrics : [];
-  const metricSummary = metrics.map((m) => {
-    const mo = (m ?? {}) as Record<string, unknown>;
-    const pts = Array.isArray(mo.data) ? mo.data.length : 0;
-    const name = typeof mo.name === "string" ? mo.name : "?";
-    const units = typeof mo.units === "string" ? ` ${mo.units}` : "";
-    return `${name}(${pts}${units})`;
-  });
-  console.warn(
-    `[cardio-ingest][diag] bytes=${bytes} dataKeys=[${Object.keys(data).join(",")}] ` +
-      `workouts=${workouts.length} metricsCount=${metrics.length} metrics=[${metricSummary.join(", ")}]`,
-  );
+function logBodyShape(body: unknown, bytes: number): void {
+  try {
+    const obj = (v: unknown): Record<string, unknown> | null =>
+      v && typeof v === "object" && !Array.isArray(v) ? (v as Record<string, unknown>) : null;
+    const root = obj(body);
+    const data = obj(root?.data) ?? root; // workouts may sit under data.* or at the top
+    const workouts = Array.isArray(data?.workouts) ? (data!.workouts as unknown[]) : null;
+    const metrics = Array.isArray(data?.metrics) ? (data!.metrics as unknown[]) : null;
+
+    const firstKeys = (arr: unknown[] | null): string =>
+      arr && arr[0] && typeof arr[0] === "object" ? Object.keys(arr[0] as object).join(",") : "n/a";
+    const metricNames = metrics
+      ? metrics.map((m) => obj(m)?.name).filter((n): n is string => typeof n === "string")
+      : [];
+
+    console.warn(
+      `[cardio-ingest][diag] bytes=${bytes} topKeys=[${root ? Object.keys(root).join(",") : typeof body}] ` +
+        `dataKeys=[${data ? Object.keys(data).join(",") : "none"}] ` +
+        `workouts=${workouts ? workouts.length : "absent"} workoutKeys=[${firstKeys(workouts)}] ` +
+        `metrics=${metrics ? metrics.length : "absent"} metricNames=[${metricNames.join(",")}]`,
+    );
+    if (workouts && workouts[0]) {
+      console.warn(`[cardio-ingest][diag] sampleWorkout=${JSON.stringify(workouts[0]).slice(0, 1500)}`);
+    }
+  } catch (e) {
+    console.warn(`[cardio-ingest][diag] failed: ${String(e)}`);
+  }
 }
 
 /** Human summary for the calendar chip's notes — only the parts we actually have. */
@@ -149,10 +162,10 @@ export async function POST(request: Request): Promise<Response> {
   if ("error" in parsed) return parsed.error;
   const { body } = parsed;
 
+  logBodyShape(body, Number.isFinite(declaredLen) ? declaredLen : -1); // TEMP diagnostic (any shape)
+
   // --- Health Auto Export batch ---------------------------------------------
   if (isHaePayload(body)) {
-    logHaeShape(body, Number.isFinite(declaredLen) ? declaredLen : -1); // TEMP diagnostic
-
     const { workouts, skipped } = mapHaePayload(body);
     if (workouts.length > MAX_WORKOUTS) {
       return fail(413, `Too many workouts (${workouts.length}); cap is ${MAX_WORKOUTS}.`);
