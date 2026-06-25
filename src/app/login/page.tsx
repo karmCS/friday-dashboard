@@ -30,14 +30,31 @@ export default async function LoginPage({
   return (
     <main
       style={{
+        position: "relative",
+        overflow: "hidden",
         minHeight: "100vh",
         display: "flex",
         alignItems: "center",
         justifyContent: "center",
-        padding: 24,
+        padding: "48px 24px",
         background: "radial-gradient(140% 90% at 50% 0%,#11212e,#05090e 70%)",
+        color: "#cfe6f5",
       }}
     >
+      {/* faint grid backdrop, masked to a soft vignette (design: Friday Sign In) */}
+      <div
+        aria-hidden
+        style={{
+          position: "absolute",
+          inset: 0,
+          backgroundImage:
+            "linear-gradient(rgba(120,210,245,.05) 1px,transparent 1px),linear-gradient(90deg,rgba(120,210,245,.05) 1px,transparent 1px)",
+          backgroundSize: "46px 46px",
+          maskImage: "radial-gradient(70% 60% at 50% 30%,#000,transparent)",
+          WebkitMaskImage: "radial-gradient(70% 60% at 50% 30%,#000,transparent)",
+          pointerEvents: "none",
+        }}
+      />
       <LoginForm siteKey={turnstileSiteKey()} next={safeNext(sp?.next)} />
     </main>
   );
