@@ -30,8 +30,32 @@ export const runtime = "nodejs";
 
 const HR_MIN = 30;
 const HR_MAX = 260;
-const MAX_BYTES = 6 * 1024 * 1024; // HAE full exports can be large; bound before buffering
-const MAX_WORKOUTS = 200; // sanity cap on one batch
+// TEMP (diagnostic): raised to Cloudflare's 100 MB ceiling so a full HAE export gets read + its
+// shape logged (see logHaeShape). Tune back down once we know what HAE actually sends.
+const MAX_BYTES = 100 * 1024 * 1024;
+const MAX_WORKOUTS = 2000; // sanity cap on one batch (years of workouts fit)
+
+/**
+ * TEMP diagnostic: logs the shape of an HAE payload — total bytes, the keys under `data`, the
+ * workout count, and every metric's name + sample-point count + units — so we can see exactly
+ * which data types were included (and which are the heavy ones). Remove after inspection.
+ */
+function logHaeShape(body: Record<string, unknown>, bytes: number): void {
+  const data = (body.data ?? {}) as Record<string, unknown>;
+  const workouts = Array.isArray(data.workouts) ? data.workouts : [];
+  const metrics = Array.isArray(data.metrics) ? data.metrics : [];
+  const metricSummary = metrics.map((m) => {
+    const mo = (m ?? {}) as Record<string, unknown>;
+    const pts = Array.isArray(mo.data) ? mo.data.length : 0;
+    const name = typeof mo.name === "string" ? mo.name : "?";
+    const units = typeof mo.units === "string" ? ` ${mo.units}` : "";
+    return `${name}(${pts}${units})`;
+  });
+  console.warn(
+    `[cardio-ingest][diag] bytes=${bytes} dataKeys=[${Object.keys(data).join(",")}] ` +
+      `workouts=${workouts.length} metricsCount=${metrics.length} metrics=[${metricSummary.join(", ")}]`,
+  );
+}
 
 /** Human summary for the calendar chip's notes — only the parts we actually have. */
 function summarize(n: NormalizedCardio): string {
@@ -127,6 +151,8 @@ export async function POST(request: Request): Promise<Response> {
 
   // --- Health Auto Export batch ---------------------------------------------
   if (isHaePayload(body)) {
+    logHaeShape(body, Number.isFinite(declaredLen) ? declaredLen : -1); // TEMP diagnostic
+
     const { workouts, skipped } = mapHaePayload(body);
     if (workouts.length > MAX_WORKOUTS) {
       return fail(413, `Too many workouts (${workouts.length}); cap is ${MAX_WORKOUTS}.`);
