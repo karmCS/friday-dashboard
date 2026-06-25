@@ -30,45 +30,11 @@ export const runtime = "nodejs";
 
 const HR_MIN = 30;
 const HR_MAX = 260;
-// TEMP (diagnostic): raised to Cloudflare's 100 MB ceiling so a full HAE export gets read + its
-// shape logged (see logHaeShape). Tune back down once we know what HAE actually sends.
-const MAX_BYTES = 100 * 1024 * 1024;
+// HAE full-history exports embed per-second HR arrays in each workout (~11 MB for ~165 workouts),
+// so the cap is generous for a one-time backfill while still bounding memory on this bearer
+// endpoint. Ongoing per-workout exports are tiny. ponytail: 50 MB ≈ 700+ workouts; raise if hit.
+const MAX_BYTES = 50 * 1024 * 1024;
 const MAX_WORKOUTS = 2000; // sanity cap on one batch (years of workouts fit)
-
-/**
- * TEMP diagnostic: logs the structure of WHATEVER body arrives (any shape) so we can see HAE's
- * real envelope + field names — top-level keys, keys under `data`, array lengths, the first
- * workout's keys, a truncated sample workout, and metric names. Runs unconditionally (a 400/413
- * never reaches the HAE branch). Remove once the shape is known.
- */
-function logBodyShape(body: unknown, bytes: number): void {
-  try {
-    const obj = (v: unknown): Record<string, unknown> | null =>
-      v && typeof v === "object" && !Array.isArray(v) ? (v as Record<string, unknown>) : null;
-    const root = obj(body);
-    const data = obj(root?.data) ?? root; // workouts may sit under data.* or at the top
-    const workouts = Array.isArray(data?.workouts) ? (data!.workouts as unknown[]) : null;
-    const metrics = Array.isArray(data?.metrics) ? (data!.metrics as unknown[]) : null;
-
-    const firstKeys = (arr: unknown[] | null): string =>
-      arr && arr[0] && typeof arr[0] === "object" ? Object.keys(arr[0] as object).join(",") : "n/a";
-    const metricNames = metrics
-      ? metrics.map((m) => obj(m)?.name).filter((n): n is string => typeof n === "string")
-      : [];
-
-    console.warn(
-      `[cardio-ingest][diag] bytes=${bytes} topKeys=[${root ? Object.keys(root).join(",") : typeof body}] ` +
-        `dataKeys=[${data ? Object.keys(data).join(",") : "none"}] ` +
-        `workouts=${workouts ? workouts.length : "absent"} workoutKeys=[${firstKeys(workouts)}] ` +
-        `metrics=${metrics ? metrics.length : "absent"} metricNames=[${metricNames.join(",")}]`,
-    );
-    if (workouts && workouts[0]) {
-      console.warn(`[cardio-ingest][diag] sampleWorkout=${JSON.stringify(workouts[0]).slice(0, 1500)}`);
-    }
-  } catch (e) {
-    console.warn(`[cardio-ingest][diag] failed: ${String(e)}`);
-  }
-}
 
 /** Human summary for the calendar chip's notes — only the parts we actually have. */
 function summarize(n: NormalizedCardio): string {
@@ -161,8 +127,6 @@ export async function POST(request: Request): Promise<Response> {
   const parsed = await parseJsonBody(request);
   if ("error" in parsed) return parsed.error;
   const { body } = parsed;
-
-  logBodyShape(body, Number.isFinite(declaredLen) ? declaredLen : -1); // TEMP diagnostic (any shape)
 
   // --- Health Auto Export batch ---------------------------------------------
   if (isHaePayload(body)) {
