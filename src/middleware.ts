@@ -60,6 +60,11 @@ export async function middleware(request: NextRequest): Promise<NextResponse> {
 // unauthenticated login page). NOTE: `_next/image` is deliberately NOT excluded — the image
 // optimizer serves files from `public/` and would otherwise be an ungated read path. (Sensitive
 // uploads are served via /api/* anyway, never from public/.)
+//
+// `api/fitness/cardio/ingest` is ALSO excluded: it's bearer-gated (not session-gated), and when
+// middleware runs on a route Next caps the buffered body (~10MB) and truncates larger ones —
+// which corrupts big Health Auto Export batches. Skipping middleware here removes that cap; the
+// route's own CARDIO_TOKEN check still protects it.
 export const config = {
-  matcher: ["/((?!_next/static|favicon.ico|robots.txt).*)"],
+  matcher: ["/((?!_next/static|favicon.ico|robots.txt|api/fitness/cardio/ingest).*)"],
 };
