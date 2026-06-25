@@ -340,49 +340,8 @@ export function Overview({ snapshot, onSelect }: OverviewProps) {
 
         {/* stat rows */}
         <div style={{ display: "flex", flexDirection: "column", gap: 9 }}>
-          <StatRow
-            title="WEB"
-            sub="LANDING · FOOTAGE · PORTFOLIO"
-            grade={<span aria-hidden style={gradeLetter("linear-gradient(180deg,#aee2ff,#2b8bff)", "#06224a", "rgba(80,165,255,.8)")}>B</span>}
-            bar={<SegBar total={9} lit={fillCount(webTotal, 1800, 9)} color="linear-gradient(180deg,#7fd2ff,#1f86ff)" />}
-            value={fmtNum(webTotal)}
-            caption={`7D · TOP ${topSite}`}
-            onClick={() => onSelect("landing")}
-            i={2}
-          />
-          <StatRow
-            title="FITNESS"
-            sub="WORKOUT + BODY"
-            grade={<GradeBadge grade={grades.body.grade} size={66} />}
-            bar={<SegBar total={9} lit={fillCount(steps ?? 0, 12000, 9)} color="linear-gradient(180deg,#5aa6ff,#bf5cf3)" />}
-            value={steps === null ? "—" : fmtNum(steps)}
-            caption={`STEPS · ${bw === null ? "—" : `${bw}LB`} · ${lastWorkout}`}
-            onClick={() => onSelect("fitness")}
-            i={3}
-          />
-          <StatRow
-            title="TACOS"
-            sub="PERSONAL LOG"
-            grade={<span aria-hidden style={{ ...gradeLetter("linear-gradient(120deg,#ff8aea,#b450ff)", "#320d4a", "rgba(205,115,255,.75)"), fontSize: 26 }}>SSR</span>}
-            bar={<SegBar total={9} lit={fillCount(tacos.total, 30, 9)} color="linear-gradient(180deg,#ff7ae6,#b53bff)" />}
-            value={tacos.total === 0 ? "—" : fmtNum(tacos.total)}
-            caption={tacos.last_spot ? `🌮 ${tacos.last_spot.toUpperCase()}` : "VIA /API/TACOS · OPEN"}
-            onClick={() => onSelect("tacos")}
-            i={4}
-          />
-          <StatRow
-            title="CAFES"
-            sub="PERSONAL LOG"
-            grade={<span aria-hidden style={{ ...gradeLetter("linear-gradient(120deg,#f0c878,#c97b3c)", "#3a1f08", "rgba(220,150,80,.7)"), fontSize: 30 }}>S</span>}
-            bar={<SegBar total={9} lit={fillCount(cafes.total, 30, 9)} color="linear-gradient(180deg,#e9b15a,#cf7a25)" />}
-            value={cafes.total === 0 ? "—" : fmtNum(cafes.total)}
-            caption={cafes.last_spot ? `☕ ${cafes.last_spot.toUpperCase()}` : "VIA /API/CAFES · OPEN"}
-            onClick={() => onSelect("cafes")}
-            i={5}
-          />
-
           {/* Social — coming soon (no source wired). */}
-          <div style={{ display: "flex", alignItems: "center", gap: 16, flexWrap: "wrap", ["--i" as string]: 6 } as CSSProperties}>
+          <div style={{ display: "flex", alignItems: "center", gap: 16, flexWrap: "wrap", ["--i" as string]: 2 } as CSSProperties}>
             <div style={{ width: 188, minWidth: 140 }}>
               <div style={{ fontFamily: DISPLAY, fontSize: 25, lineHeight: 0.95, color: "#15384e" }}>SOCIAL</div>
               <div style={{ fontFamily: BODY, fontWeight: 700, fontSize: 10, letterSpacing: ".1em", color: INK_SUB, marginTop: 2 }}>NOT YET TRACKED</div>
@@ -407,6 +366,47 @@ export function Overview({ snapshot, onSelect }: OverviewProps) {
               </span>
             </div>
           </div>
+
+          <StatRow
+            title="WEB"
+            sub="LANDING · FOOTAGE · PORTFOLIO"
+            grade={null}
+            bar={<SegBar total={9} lit={fillCount(webTotal, 1800, 9)} color="linear-gradient(180deg,#7fd2ff,#1f86ff)" />}
+            value={fmtNum(webTotal)}
+            caption={`7D · TOP ${topSite}`}
+            onClick={() => onSelect("landing")}
+            i={3}
+          />
+          <StatRow
+            title="FITNESS"
+            sub="WORKOUT + BODY"
+            grade={<GradeBadge grade={grades.body.grade} size={66} />}
+            bar={<SegBar total={9} lit={fillCount(steps ?? 0, 12000, 9)} color="linear-gradient(180deg,#5aa6ff,#bf5cf3)" />}
+            value={steps === null ? "—" : fmtNum(steps)}
+            caption={`STEPS · ${bw === null ? "—" : `${bw}LB`} · ${lastWorkout}`}
+            onClick={() => onSelect("fitness")}
+            i={4}
+          />
+          <StatRow
+            title="TACOS"
+            sub="PERSONAL LOG"
+            grade={null}
+            bar={<SegBar total={9} lit={fillCount(tacos.total, 30, 9)} color="linear-gradient(180deg,#ff7ae6,#b53bff)" />}
+            value={tacos.total === 0 ? "—" : fmtNum(tacos.total)}
+            caption={tacos.last_spot ? `🌮 ${tacos.last_spot.toUpperCase()}` : "VIA /API/TACOS · OPEN"}
+            onClick={() => onSelect("tacos")}
+            i={5}
+          />
+          <StatRow
+            title="CAFES"
+            sub="PERSONAL LOG"
+            grade={null}
+            bar={<SegBar total={9} lit={fillCount(cafes.total, 30, 9)} color="linear-gradient(180deg,#e9b15a,#cf7a25)" />}
+            value={cafes.total === 0 ? "—" : fmtNum(cafes.total)}
+            caption={cafes.last_spot ? `☕ ${cafes.last_spot.toUpperCase()}` : "VIA /API/CAFES · OPEN"}
+            onClick={() => onSelect("cafes")}
+            i={6}
+          />
         </div>
       </div>
     </div>
