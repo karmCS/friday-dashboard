@@ -1,0 +1,1 @@
+# keeps public/ in git so the Docker standalone COPY has a source dir

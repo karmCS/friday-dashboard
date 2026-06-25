@@ -12,4 +12,5 @@ services:
       # SQLite DB (/data/friday.db) + uploaded photos (/data/photos)
       - ./data:/data
     ports:
-      - "3000:3000"
+      # Bind to loopback only — reached via the cloudflared tunnel (host :3000 is portfolio).
+      - "127.0.0.1:3003:3000"
