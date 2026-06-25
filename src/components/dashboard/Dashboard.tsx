@@ -93,6 +93,16 @@ export function Dashboard({ snapshot }: DashboardProps) {
     [screen],
   );
 
+  // Clear the session server-side, then hard-navigate to the login page.
+  const logout = useCallback(async () => {
+    try {
+      await fetch("/api/auth/logout", { method: "POST" });
+    } catch {
+      /* even if the call fails, send the user to the gate */
+    }
+    window.location.assign("/login");
+  }, []);
+
   // On section change: restore scroll, then move focus to <main> and let the live region announce.
   useEffect(() => {
     window.scrollTo(0, scrollMemory.current[screen] ?? 0);
@@ -122,6 +132,7 @@ export function Dashboard({ snapshot }: DashboardProps) {
           onMenu={() => setNavOpen((v) => !v)}
           asOf={snapshot.as_of}
           allUp={snapshot.infra.all_up}
+          onLogout={logout}
         />
 
         <main
