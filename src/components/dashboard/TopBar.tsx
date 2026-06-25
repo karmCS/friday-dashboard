@@ -14,6 +14,8 @@ interface TopBarProps {
   /** ISO timestamp the snapshot was generated. */
   asOf: string;
   allUp: boolean;
+  /** Clear the session and return to the login page. */
+  onLogout: () => void;
 }
 
 const DISPLAY = t.font.display;
@@ -34,7 +36,7 @@ const iconBtn: CSSProperties = {
 };
 
 /** Sticky top bar: menu (mobile), back-to-overview, section title, sync stamp, all-systems indicator. */
-export function TopBar({ title, showBack, onBack, onMenu, asOf, allUp }: TopBarProps) {
+export function TopBar({ title, showBack, onBack, onMenu, asOf, allUp, onLogout }: TopBarProps) {
   const staleMin = minutesSince(asOf);
   const isStale = staleMin !== null && staleMin > STALE_AFTER_MIN;
 
@@ -102,6 +104,9 @@ export function TopBar({ title, showBack, onBack, onMenu, asOf, allUp }: TopBarP
           <span aria-hidden>◆ </span>
           {allUp ? "ALL ONLINE" : "DEGRADED"}
         </span>
+        <button type="button" className="fr-pressable" onClick={onLogout} aria-label="Sign out" style={iconBtn}>
+          SIGN OUT
+        </button>
       </div>
     </header>
   );
