@@ -1,4 +1,4 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { Barlow, Black_Han_Sans, JetBrains_Mono, Zen_Kaku_Gothic_New } from "next/font/google";
 
 import "./globals.css";
@@ -6,6 +6,16 @@ import "./globals.css";
 export const metadata: Metadata = {
   title: "Friday — Status Window",
   description: "Single-pane command center for the Friday homelab.",
+};
+
+// Without this, mobile browsers assume a ~980px desktop viewport and zoom out — the
+// HUD renders tiny and the responsive media queries never fire. themeColor matches --bg
+// so the iOS/Android status bar blends into the dark shell. (No viewport-fit:cover — we
+// don't draw edge-to-edge, so let the browser inset content past the notch automatically.)
+export const viewport: Viewport = {
+  width: "device-width",
+  initialScale: 1,
+  themeColor: "#05090e",
 };
 
 /**

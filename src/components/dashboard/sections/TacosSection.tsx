@@ -929,7 +929,7 @@ export function TacosSection({ tacos }: TacosSectionProps) {
       ) : null}
 
       {/* KPI strip */}
-      <div style={{ display: "flex", gap: 13 }}>
+      <div className="fr-kpis" style={{ display: "flex", gap: 13 }}>
         <KpiCard label="TOTAL LOGGED" value={fmtNum(tacos.total)} sub={tacos.total === 0 ? "NO TACOS YET" : "ALL TIME"} valueColor="#fff" subColor={ACCENT_PINK} />
         <KpiCard label="AVG RATING" value={avgRating === null ? "—" : avgRating.toFixed(1)} sub="OUT OF 10" valueColor={ACCENT_GOLD} subColor="#cf9fe0" />
         <KpiCard label="LAST SPOT" value={tacos.last_spot ?? "—"} sub={tacos.last_spot ? "MOST RECENT VISIT" : "AWAITING FIRST LOG"} valueColor="#fff" subColor="#cf9fe0" flex={1.4} />
@@ -937,7 +937,7 @@ export function TacosSection({ tacos }: TacosSectionProps) {
       </div>
 
       {/* table + quick-log phone */}
-      <div style={{ display: "flex", gap: 13, alignItems: "flex-start" }}>
+      <div className="fr-split" style={{ display: "flex", gap: 13, alignItems: "flex-start" }}>
         {showSkeleton ? (
           <LogSkeleton />
         ) : loadError && rows.length === 0 ? (
@@ -962,7 +962,7 @@ export function TacosSection({ tacos }: TacosSectionProps) {
       </div>
 
       {/* histogram + cities */}
-      <div style={{ display: "flex", gap: 13, alignItems: "stretch" }}>
+      <div className="fr-split" style={{ display: "flex", gap: 13, alignItems: "stretch" }}>
         <RatingHistogram rows={rows} />
         <ByCity rows={rows} />
       </div>

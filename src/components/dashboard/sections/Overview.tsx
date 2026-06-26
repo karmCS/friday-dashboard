@@ -190,6 +190,7 @@ export function Overview({ snapshot, onSelect }: OverviewProps) {
       }}
     >
       <div
+        className="fr-overview-inner"
         style={{
           background: "linear-gradient(150deg,#9ed8ee 0%,#71bedf 42%,#8fd2ec 72%,#b8e7f6 100%)",
           clipPath:

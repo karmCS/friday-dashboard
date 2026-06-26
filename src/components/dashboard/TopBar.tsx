@@ -42,6 +42,7 @@ export function TopBar({ title, showBack, onBack, onMenu, asOf, allUp, onLogout 
 
   return (
     <header
+      className="fr-topbar"
       style={{
         display: "flex",
         justifyContent: "space-between",
@@ -66,6 +67,7 @@ export function TopBar({ title, showBack, onBack, onMenu, asOf, allUp, onLogout 
           </button>
         )}
         <h1
+          className="fr-topbar-title"
           style={{
             margin: 0,
             fontFamily: DISPLAY,
@@ -83,8 +85,8 @@ export function TopBar({ title, showBack, onBack, onMenu, asOf, allUp, onLogout 
         </h1>
       </div>
 
-      <div style={{ display: "flex", alignItems: "center", gap: 16, flex: "none" }}>
-        <span suppressHydrationWarning style={{ fontFamily: MONO, fontSize: 11, color: isStale ? t.amber : t.textMuted }}>
+      <div className="fr-topbar-meta" style={{ display: "flex", alignItems: "center", gap: 16, flex: "none" }}>
+        <span className="fr-sync" suppressHydrationWarning style={{ fontFamily: MONO, fontSize: 11, color: isStale ? t.amber : t.textMuted }}>
           {isStale ? "STALE · " : ""}SYNC {formatSync(asOf)}
         </span>
         <span

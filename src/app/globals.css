@@ -169,6 +169,47 @@ body {
   }
 }
 
+/* KPI strips: always allowed to wrap (4-up desktop → 2-up phone). */
+.fr-kpis {
+  flex-wrap: wrap;
+}
+
+/* Phone layout: stat strips go 2-up, side-by-side splits stack, top bar tightens.
+   !important is required to beat the inline display:flex / fixed-width styles the
+   Questism components set (this codebase is inline-styles-only, no Tailwind). */
+@media (max-width: 720px) {
+  .fr-kpis > * {
+    flex: 1 1 calc(50% - 7px) !important;
+    min-width: 0 !important;
+  }
+  .fr-split {
+    flex-direction: column !important;
+  }
+  .fr-split > * {
+    width: 100% !important;
+    max-width: none !important;
+    flex: 1 1 auto !important;
+  }
+  .fr-overview-inner {
+    padding: 18px 15px 20px !important;
+  }
+  .fr-topbar {
+    padding: 11px 14px !important;
+    gap: 9px !important;
+  }
+  .fr-topbar-title {
+    font-size: 21px !important;
+  }
+  .fr-topbar-meta {
+    gap: 10px !important;
+  }
+  /* Sync stamp shrinks (not hidden) — it carries the only ">10min stale" signal, which a
+     monitoring dashboard must keep on phones. The status chip + sign-out still fit. */
+  .fr-sync {
+    font-size: 10px !important;
+  }
+}
+
 /* --- skeleton loaders ------------------------------------------------------ */
 .fr-skel {
   background: linear-gradient(

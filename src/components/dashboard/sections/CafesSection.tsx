@@ -923,7 +923,7 @@ export function CafesSection({ cafes }: CafesSectionProps) {
       ) : null}
 
       {/* KPI strip */}
-      <div style={{ display: "flex", gap: 13 }}>
+      <div className="fr-kpis" style={{ display: "flex", gap: 13 }}>
         <KpiCard label="TOTAL LOGGED" value={fmtNum(cafes.total)} sub={cafes.total === 0 ? "NO CAFES YET" : "ALL TIME"} valueColor="#fff" subColor={ACCENT_CARAMEL} />
         <KpiCard label="AVG RATING" value={avgRating === null ? "—" : avgRating.toFixed(1)} sub="OUT OF 10" valueColor={ACCENT_GOLD} subColor="#c2a17f" />
         <KpiCard label="LAST SPOT" value={cafes.last_spot ?? "—"} sub={cafes.last_spot ? "MOST RECENT VISIT" : "AWAITING FIRST LOG"} valueColor="#fff" subColor="#c2a17f" flex={1.4} />
@@ -931,7 +931,7 @@ export function CafesSection({ cafes }: CafesSectionProps) {
       </div>
 
       {/* table + quick-log phone */}
-      <div style={{ display: "flex", gap: 13, alignItems: "flex-start" }}>
+      <div className="fr-split" style={{ display: "flex", gap: 13, alignItems: "flex-start" }}>
         {showSkeleton ? (
           <LogSkeleton />
         ) : loadError && rows.length === 0 ? (
@@ -956,7 +956,7 @@ export function CafesSection({ cafes }: CafesSectionProps) {
       </div>
 
       {/* histogram + cities */}
-      <div style={{ display: "flex", gap: 13, alignItems: "stretch" }}>
+      <div className="fr-split" style={{ display: "flex", gap: 13, alignItems: "stretch" }}>
         <RatingHistogram rows={rows} />
         <ByCity rows={rows} />
       </div>
