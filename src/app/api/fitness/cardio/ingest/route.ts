@@ -18,12 +18,13 @@
  */
 
 import type Database from "better-sqlite3";
+import { writeFileSync } from "fs";
 
 import { getDb } from "@/lib/db";
 import { requireBearer } from "@/lib/auth";
 import { fail, ok, parseJsonBody } from "../../_lib/http";
 import { asIntInRange, asIsoDate, asNonEmptyString, asPositiveNumber } from "../../_lib/validate";
-import { isHaePayload, mapHaePayload, type NormalizedCardio } from "./hae";
+import { isHaePayload, mapHaePayload, mapHaeSteps, type NormalizedCardio } from "./hae";
 
 // better-sqlite3 + process.env secrets require the Node runtime (not Edge).
 export const runtime = "nodejs";
@@ -129,17 +130,35 @@ export async function POST(request: Request): Promise<Response> {
   const { body } = parsed;
 
   // --- Health Auto Export batch ---------------------------------------------
+  // temp diagnostic: write body shape to /data so we can inspect it via ssh
+  try {
+    writeFileSync("/data/ingest-debug.json", JSON.stringify({
+      topKeys: Object.keys(body),
+      isHae: isHaePayload(body),
+      dataType: typeof body.data,
+      dataKeys: body.data && typeof body.data === "object" && !Array.isArray(body.data)
+        ? Object.keys(body.data as object) : null,
+    }));
+  } catch {}
   if (isHaePayload(body)) {
     const { workouts, skipped } = mapHaePayload(body);
+    const steps = mapHaeSteps(body);
     if (workouts.length > MAX_WORKOUTS) {
       return fail(413, `Too many workouts (${workouts.length}); cap is ${MAX_WORKOUTS}.`);
     }
     const db = getDb();
     db.transaction(() => {
       for (const w of workouts) insertCardio(db, w);
+      if (steps.length > 0) {
+        const upsertStep = db.prepare(
+          `INSERT INTO steps_log (date, count, source) VALUES (?, ?, 'health-auto-export')
+           ON CONFLICT(date) DO UPDATE SET count = excluded.count, source = excluded.source`,
+        );
+        for (const s of steps) upsertStep.run(s.date, s.count);
+      }
     })();
     return ok(
-      { received: true, source: "health-auto-export", imported: workouts.length, skipped },
+      { received: true, source: "health-auto-export", imported: workouts.length, skipped, steps_imported: steps.length },
       201,
     );
   }
