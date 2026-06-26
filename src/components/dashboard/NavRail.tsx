@@ -4,6 +4,7 @@ import { CSSProperties } from "react";
 
 import { NAV_ITEMS, SectionKey } from "./nav";
 import { t, buttonReset } from "./tokens";
+import { calcAge } from "@/lib/format";
 
 interface NavRailProps {
   active: SectionKey;
@@ -133,7 +134,7 @@ export function NavRail({ active, onSelect, open, onClose }: NavRailProps) {
             <div style={{ fontFamily: DISPLAY, fontSize: 15, color: t.text, letterSpacing: ".03em", lineHeight: 1 }}>
               MARK
             </div>
-            <div style={{ fontFamily: MONO, fontSize: 10, color: t.textMuted, marginTop: 3 }}>LV.41 · BUILDER</div>
+            <div style={{ fontFamily: MONO, fontSize: 10, color: t.textMuted, marginTop: 3 }}>LV.{calcAge(2005, 1, 31)} · BUILDER</div>
           </div>
         </div>
 

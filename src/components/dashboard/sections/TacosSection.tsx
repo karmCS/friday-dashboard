@@ -509,6 +509,7 @@ interface FormState {
   taco_type: string;
   rating: number;
   price_tier: PriceTier;
+  notes: string;
 }
 
 const EMPTY_FORM: FormState = {
@@ -518,6 +519,7 @@ const EMPTY_FORM: FormState = {
   taco_type: "",
   rating: 8,
   price_tier: "$",
+  notes: "",
 };
 
 const fieldLabel: CSSProperties = { display: "block", fontFamily: BODY, fontWeight: 800, fontSize: 9, letterSpacing: ".12em", color: "#b07ec0", marginBottom: 5 };
@@ -579,6 +581,7 @@ function QuickLog({ onSubmit }: { onSubmit: (draft: TacoDraft, photo: File | nul
       taco_type: form.taco_type.trim(),
       rating: form.rating,
       price_tier: form.price_tier,
+      notes: form.notes.trim(),
     };
     const photoToSend = photo;
     // Reset the text fields immediately for an optimistic feel; the parent owns the row list.
@@ -631,6 +634,11 @@ function QuickLog({ onSubmit }: { onSubmit: (draft: TacoDraft, photo: File | nul
             <div>
               <label htmlFor="taco-type" style={fieldLabel}>TYPE</label>
               <input id="taco-type" style={inputStyle} value={form.taco_type} placeholder="Al Pastor" onChange={(e) => update("taco_type", e.target.value)} />
+            </div>
+
+            <div>
+              <label htmlFor="taco-notes" style={fieldLabel}>NOTES <span style={{ fontWeight: 700, color: "#cf9fe0" }}>· OPTIONAL</span></label>
+              <textarea id="taco-notes" style={{ ...inputStyle, minHeight: 60, resize: "vertical", lineHeight: 1.4 }} value={form.notes} placeholder="Crispy edges, killer salsa bar…" onChange={(e) => update("notes", e.target.value)} />
             </div>
 
             <div>
@@ -820,7 +828,7 @@ export function TacosSection({ tacos }: TacosSectionProps) {
     const now = new Date().toISOString().slice(0, 10);
     const localPhotoUrl = photo ? URL.createObjectURL(photo) : undefined;
     if (localPhotoUrl) objectUrls.current.add(localPhotoUrl);
-    const optimistic: LogRow = { ...draft, id, notes: null, has_photo: false, visited_at: now, created_at: now, localPhotoUrl };
+    const optimistic: LogRow = { ...draft, id, notes: draft.notes || null, has_photo: false, visited_at: now, created_at: now, localPhotoUrl };
     setRows((prev) => [optimistic, ...prev]);
     setHighlightId(id);
     setPhotoWarn(null);

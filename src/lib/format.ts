@@ -32,6 +32,17 @@ export function formatSync(iso: string): string {
   )}:${p(d.getSeconds())}`;
 }
 
+/** Current age given a birth date (month is 1-based). Rolls over on the birthday. */
+export function calcAge(birthYear: number, birthMonth: number, birthDay: number): number {
+  const now = new Date();
+  let age = now.getFullYear() - birthYear;
+  const hasBirthdayPassed =
+    now.getMonth() + 1 > birthMonth ||
+    (now.getMonth() + 1 === birthMonth && now.getDate() >= birthDay);
+  if (!hasBirthdayPassed) age--;
+  return age;
+}
+
 /** Minutes elapsed since an ISO timestamp (for staleness checks). null if unparseable. */
 export function minutesSince(iso: string): number | null {
   const d = new Date(iso);

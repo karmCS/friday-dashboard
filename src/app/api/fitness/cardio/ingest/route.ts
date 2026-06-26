@@ -18,7 +18,6 @@
  */
 
 import type Database from "better-sqlite3";
-import { writeFileSync } from "fs";
 
 import { getDb } from "@/lib/db";
 import { requireBearer } from "@/lib/auth";
@@ -130,16 +129,6 @@ export async function POST(request: Request): Promise<Response> {
   const { body } = parsed;
 
   // --- Health Auto Export batch ---------------------------------------------
-  // temp diagnostic: write body shape to /data so we can inspect it via ssh
-  try {
-    writeFileSync("/data/ingest-debug.json", JSON.stringify({
-      topKeys: Object.keys(body),
-      isHae: isHaePayload(body),
-      dataType: typeof body.data,
-      dataKeys: body.data && typeof body.data === "object" && !Array.isArray(body.data)
-        ? Object.keys(body.data as object) : null,
-    }));
-  } catch {}
   if (isHaePayload(body)) {
     const { workouts, skipped } = mapHaePayload(body);
     const steps = mapHaeSteps(body);

@@ -36,7 +36,7 @@ function Section({ screen, snapshot, go }: { screen: SectionKey; snapshot: Snaps
     case "ourfootage":
       return <OurFootageSection footage={snapshot.our_footage} infra={snapshot.infra} />;
     case "fitness":
-      return <FitnessSection />;
+      return <FitnessSection body={snapshot.grades.body} fitness={snapshot.fitness} />;
     case "tacos":
       return <TacosSection tacos={snapshot.tacos} />;
     case "cafes":

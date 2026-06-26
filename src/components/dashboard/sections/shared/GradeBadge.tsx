@@ -96,6 +96,11 @@ const RECIPES: Record<GradeId, Recipe> = {
   "Immeasurable": immeasurable(),
 };
 
+/** The tile background CSS for a grade (for rank-card displays that render the full tile). */
+export function gradeTileBg(grade: GradeId): string {
+  return (RECIPES[grade] ?? RECIPES["S"]).tileBg;
+}
+
 function fontSize(label: string, size: number): number {
   const len = label.length;
   const mult = len <= 1 ? 0.60 : len === 2 ? 0.42 : len === 3 ? 0.305 : 0.235;

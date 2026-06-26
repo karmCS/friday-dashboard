@@ -5,7 +5,7 @@ import { CSSProperties } from "react";
 import type { Snapshot } from "@/lib/types";
 import { SectionKey } from "../nav";
 import { t, tabularNum, buttonReset } from "../tokens";
-import { fmtNum, fmtPct, fmtClock } from "@/lib/format";
+import { fmtNum, fmtPct, fmtClock, calcAge } from "@/lib/format";
 import { GradeBadge } from "./shared/GradeBadge";
 
 interface OverviewProps {
@@ -164,7 +164,7 @@ function StatRow({
 
 /** Overview screen — bento of summary cards, each drilling into its full section. */
 export function Overview({ snapshot, onSelect }: OverviewProps) {
-  const { deficit_app: d, deficit_landing: landing, our_footage: footage, portfolio, infra, fitness, tacos, cafes, grades } = snapshot;
+  const { deficit_app: d, deficit_landing: landing, our_footage: footage, portfolio, infra, grades } = snapshot;
 
   const sites = [
     { name: "GETDEFICIT.COM", v: landing.visitors_7d },
@@ -175,9 +175,6 @@ export function Overview({ snapshot, onSelect }: OverviewProps) {
   const topSite = sites.reduce((a, b) => (b.v > a.v ? b : a)).name;
 
   const funnelLit = fillCount(d.funnel.conversion_rate ?? 0, 50, 8);
-  const steps = fitness.steps_7d_avg;
-  const bw = fitness.bodyweight_latest.weight;
-  const lastWorkout = fitness.last_workout.label ? fitness.last_workout.label.toUpperCase() : "—";
 
   return (
     <div
@@ -226,7 +223,7 @@ export function Overview({ snapshot, onSelect }: OverviewProps) {
                 MARK
               </div>
               <div style={{ fontFamily: BODY, fontWeight: 700, fontSize: 11.5, letterSpacing: ".16em", color: "#d6effb", marginTop: 6 }}>
-                LV.41 · INDIE BUILDER
+                LV.{calcAge(2005, 1, 31)} · INDIE BUILDER
               </div>
             </div>
             <div style={{ textAlign: "center", flexShrink: 0 }}>
@@ -376,36 +373,6 @@ export function Overview({ snapshot, onSelect }: OverviewProps) {
             caption={`7D · TOP ${topSite}`}
             onClick={() => onSelect("landing")}
             i={3}
-          />
-          <StatRow
-            title="FITNESS"
-            sub="WORKOUT + BODY"
-            grade={<GradeBadge grade={grades.body.grade} size={66} />}
-            bar={<SegBar total={9} lit={fillCount(steps ?? 0, 12000, 9)} color="linear-gradient(180deg,#5aa6ff,#bf5cf3)" />}
-            value={steps === null ? "—" : fmtNum(steps)}
-            caption={`STEPS · ${bw === null ? "—" : `${bw}LB`} · ${lastWorkout}`}
-            onClick={() => onSelect("fitness")}
-            i={4}
-          />
-          <StatRow
-            title="TACOS"
-            sub="PERSONAL LOG"
-            grade={null}
-            bar={<SegBar total={9} lit={fillCount(tacos.total, 30, 9)} color="linear-gradient(180deg,#ff7ae6,#b53bff)" />}
-            value={tacos.total === 0 ? "—" : fmtNum(tacos.total)}
-            caption={tacos.last_spot ? `🌮 ${tacos.last_spot.toUpperCase()}` : "VIA /API/TACOS · OPEN"}
-            onClick={() => onSelect("tacos")}
-            i={5}
-          />
-          <StatRow
-            title="CAFES"
-            sub="PERSONAL LOG"
-            grade={null}
-            bar={<SegBar total={9} lit={fillCount(cafes.total, 30, 9)} color="linear-gradient(180deg,#e9b15a,#cf7a25)" />}
-            value={cafes.total === 0 ? "—" : fmtNum(cafes.total)}
-            caption={cafes.last_spot ? `☕ ${cafes.last_spot.toUpperCase()}` : "VIA /API/CAFES · OPEN"}
-            onClick={() => onSelect("cafes")}
-            i={6}
           />
         </div>
       </div>

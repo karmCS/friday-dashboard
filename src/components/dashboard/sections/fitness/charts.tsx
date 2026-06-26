@@ -11,19 +11,23 @@ import { useEffect, useState } from "react";
 
 import { t, tabularNum } from "@/components/dashboard/tokens";
 import {
+  addDays,
   BODY,
   Card,
   CardTitle,
   CardioSession,
+  DAY_LABELS,
   DISPLAY,
   EmptyState,
   fetchData,
   fmtNum,
+  isoDate,
   type LinePoint,
   MONO,
   parseIso,
   SkeletonState,
   smoothPath,
+  startOfWeek,
   StepsEntry,
 } from "./shared";
 
@@ -96,9 +100,9 @@ export function StepsCard(): React.JSX.Element {
 
   return (
     <Card flex={1}>
-      <CardTitle title="STEPS" sub="30D · iOS SHORTCUT" />
+      <CardTitle title="STEPS" sub="30D · APPLE WATCH" />
       {recent.length === 0 ? (
-        <EmptyState label={error ? "COULD NOT LOAD STEPS" : "NO STEPS YET · SYNCS FROM THE iPHONE SHORTCUT"} height={150} />
+        <EmptyState label={error ? "COULD NOT LOAD STEPS" : "NO STEPS YET · SYNCS FROM APPLE WATCH"} height={150} />
       ) : (
         <>
           <div style={{ display: "flex", gap: 24, marginBottom: 12 }}>
@@ -166,8 +170,8 @@ export function CardioCard(): React.JSX.Element {
   if (data.length === 0) {
     return (
       <Card flex={1}>
-        <CardTitle title="CARDIO" sub="STRAVA" />
-        <EmptyState label={error ? "COULD NOT LOAD CARDIO" : "NO CARDIO YET · SYNCS FROM STRAVA"} height={150} />
+        <CardTitle title="CARDIO" sub="APPLE WATCH" />
+        <EmptyState label={error ? "COULD NOT LOAD CARDIO" : "NO CARDIO YET · SYNCS FROM APPLE WATCH"} height={150} />
       </Card>
     );
   }
@@ -197,7 +201,7 @@ export function CardioCard(): React.JSX.Element {
 
   return (
     <Card flex={1}>
-      <CardTitle title="CARDIO" sub="STRAVA" />
+      <CardTitle title="CARDIO" sub="APPLE WATCH" />
 
       {hrPts.length >= 2 ? (
         <div style={{ marginBottom: 12 }}>
@@ -231,7 +235,7 @@ export function CardioCard(): React.JSX.Element {
               }}
             >
               <span style={{ fontFamily: BODY, fontWeight: 700, fontSize: 12.5, color: t.textBody, textTransform: "capitalize" }}>
-                {pending ? "Pending Strava sync" : s.activity_type}
+                {pending ? "Pending sync" : s.activity_type}
               </span>
               <span style={{ display: "flex", gap: 12, fontFamily: MONO, fontSize: 10.5, color: t.textMuted, ...tabularNum }}>
                 {pending ? (
@@ -248,6 +252,97 @@ export function CardioCard(): React.JSX.Element {
           );
         })}
       </ul>
+    </Card>
+  );
+}
+
+// --- WEEKLY STEPS GRID -------------------------------------------------------
+
+export function WeeklyStepsTable(): React.JSX.Element {
+  const { data, error } = useResource<StepsEntry[]>("/api/fitness/steps", EMPTY_STEPS);
+  const painted = useFirstPaint();
+  const todayIso = isoDate(new Date());
+  const weekStart = startOfWeek(new Date());
+  const days = DAY_LABELS.map((label, i) => {
+    const d = addDays(weekStart, i);
+    return { label, iso: isoDate(d), num: d.getDate() };
+  });
+
+  if (!data) {
+    return (
+      <Card flex={1}>
+        <CardTitle title="WEEKLY STEPS" sub="LOADING" />
+        <SkeletonState height={150} />
+      </Card>
+    );
+  }
+
+  const byDate = new Map(data.map((e) => [e.date, e.count]));
+  const weekCounts = days.map(({ iso }) => byDate.get(iso) ?? null);
+  const logged = weekCounts.filter((n): n is number => n !== null);
+  const avg7 = logged.length > 0 ? Math.round(logged.reduce((s, n) => s + n, 0) / logged.length) : null;
+  const latest = [...data].reverse().find((e) => days.some((d) => d.iso === e.date)) ?? null;
+
+  return (
+    <Card flex={1}>
+      <CardTitle title="WEEKLY STEPS" sub="MON — SUN · APPLE WATCH" />
+      {error ? (
+        <EmptyState label="COULD NOT LOAD STEPS" height={150} />
+      ) : (
+        <>
+          <div style={{ display: "flex", gap: 24, marginBottom: 12 }}>
+            <div>
+              <div style={{ fontFamily: BODY, fontWeight: 800, fontSize: 9.5, letterSpacing: ".14em", color: t.textMuted }}>7-DAY AVG</div>
+              <div style={{ fontFamily: DISPLAY, fontSize: 28, lineHeight: 0.95, color: "#fff" }}>{avg7 !== null ? fmtNum(avg7) : "—"}</div>
+            </div>
+            {latest ? (
+              <div>
+                <div style={{ fontFamily: BODY, fontWeight: 800, fontSize: 9.5, letterSpacing: ".14em", color: t.textMuted }}>LATEST</div>
+                <div style={{ fontFamily: DISPLAY, fontSize: 28, lineHeight: 0.95, color: t.accent }}>{fmtNum(latest.count)}</div>
+              </div>
+            ) : null}
+          </div>
+          <div
+            role="img"
+            aria-label={`Steps this week, 7-day average ${avg7 !== null ? fmtNum(avg7) : "none"}.`}
+            style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)", gap: 6 }}
+          >
+            {days.map(({ label, iso, num }, i) => {
+              const count = byDate.get(iso) ?? null;
+              const isToday = iso === todayIso;
+              const hit = count !== null && count >= STEPS_GOAL;
+              return (
+                <div
+                  key={iso}
+                  title={`${label} ${num} · ${count !== null ? fmtNum(count) : "no data"}`}
+                  style={{
+                    display: "flex",
+                    flexDirection: "column",
+                    alignItems: "center",
+                    gap: 3,
+                    padding: "10px 4px",
+                    borderRadius: 8,
+                    background: isToday ? "rgba(70,184,255,.1)" : "rgba(8,24,38,.4)",
+                    boxShadow: isToday
+                      ? "inset 0 0 0 1px rgba(70,184,255,.3)"
+                      : "inset 0 0 0 1px rgba(120,180,210,.08)",
+                    opacity: painted ? 1 : 0,
+                    transition: `opacity var(--dur-normal) ${t.ease} ${i * 30}ms`,
+                  }}
+                >
+                  <div style={{ fontFamily: BODY, fontWeight: 800, fontSize: 9, letterSpacing: ".12em", color: isToday ? t.accent : t.textMuted }}>
+                    {label}
+                  </div>
+                  <div style={{ fontFamily: MONO, fontSize: 9.5, color: t.textDim }}>{num}</div>
+                  <div style={{ fontFamily: DISPLAY, fontSize: count !== null ? 15 : 13, color: hit ? "#7fe3ff" : count !== null ? "#fff" : t.textDim, marginTop: 4 }}>
+                    {count !== null ? fmtNum(count) : "—"}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </>
+      )}
     </Card>
   );
 }
