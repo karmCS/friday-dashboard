@@ -124,13 +124,45 @@ function mapWorkout(w: Record<string, unknown>): NormalizedCardio | null {
   };
 }
 
-/** True when the payload is an HAE batch (has data.workouts array). */
+/** True when the payload is an HAE batch (has data.workouts or data.metrics array). */
 export function isHaePayload(body: unknown): boolean {
-  return (
-    isObject(body) &&
-    isObject(body.data) &&
-    Array.isArray((body.data as Record<string, unknown>).workouts)
-  );
+  if (!isObject(body) || !isObject(body.data)) return false;
+  const d = body.data as Record<string, unknown>;
+  return Array.isArray(d.workouts) || Array.isArray(d.metrics);
+}
+
+/** Normalized daily step count (from HAE metrics). */
+export interface NormalizedStep {
+  date: string; // YYYY-MM-DD
+  count: number;
+}
+
+/**
+ * Extracts daily step counts from an HAE "All Metrics" payload.
+ * Looks for any metric named "step_count" or "steps" and sums per date
+ * (handles rare multi-source exports; Apple Health already deduplicates in practice).
+ */
+export function mapHaeSteps(body: unknown): NormalizedStep[] {
+  if (!isObject(body) || !isObject(body.data)) return [];
+  const data = body.data as Record<string, unknown>;
+  if (!Array.isArray(data.metrics)) return [];
+
+  const byDate = new Map<string, number>();
+  for (const metric of data.metrics) {
+    if (!isObject(metric)) continue;
+    const name = typeof metric.name === "string" ? metric.name.toLowerCase() : "";
+    if (name !== "step_count" && name !== "steps") continue;
+    if (!Array.isArray(metric.data)) continue;
+    for (const entry of metric.data) {
+      if (!isObject(entry)) continue;
+      const count = num(entry.qty);
+      if (count === null || count < 0) continue;
+      const date = workoutDate(entry.date);
+      if (!date) continue;
+      byDate.set(date, (byDate.get(date) ?? 0) + Math.round(count));
+    }
+  }
+  return Array.from(byDate.entries()).map(([date, count]) => ({ date, count }));
 }
 
 /** Maps a full HAE payload → normalized workouts + a count of unmappable ones. */
