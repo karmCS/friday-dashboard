@@ -8,6 +8,7 @@ import { fmtNum } from "@/lib/format";
 import type { Tacos } from "@/lib/types";
 import { photoUrlFor, validatePhoto, PHOTO_ACCEPT, PHOTO_HINT } from "./tacos/photo";
 import { EntryDetail, type DetailPalette } from "./shared/entry-detail";
+import { EntryCardList } from "./shared/entry-card-list";
 
 /**
  * Taco Tracker section (magenta palette — tonal contrast to the teal analytics sections).
@@ -936,27 +937,46 @@ export function TacosSection({ tacos }: TacosSectionProps) {
         <KpiCard label="CITIES" value={fmtNum(tacos.cities)} sub={tacos.cities === 1 ? "1 CITY" : "DISTINCT CITIES"} valueColor="#ffa24d" subColor="#cf9fe0" />
       </div>
 
-      {/* table + quick-log phone */}
+      {/* table (desktop) | card list (phone) + quick-log */}
       <div className="fr-split" style={{ display: "flex", gap: 13, alignItems: "flex-start" }}>
-        {showSkeleton ? (
-          <LogSkeleton />
-        ) : loadError && rows.length === 0 ? (
-          <div className="fr-card" style={card({ flex: 1.6 })}>
-            <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 12, padding: "22px 8px" }}>
-              <div style={{ fontFamily: BODY, fontSize: 13, color: "#ff9a8a" }}>Could not load the taco log.</div>
-              <button
-                type="button"
-                className="fr-pressable"
-                onClick={() => void load()}
-                style={{ border: "none", borderRadius: 9, cursor: "pointer", padding: "9px 18px", background: `linear-gradient(90deg,${ACCENT_PINK},${ACCENT_PURPLE})`, fontFamily: DISPLAY, fontSize: 14, color: "#fff" }}
-              >
-                RETRY
-              </button>
+        {/* Desktop: dense sortable table. */}
+        <div className="fr-only-wide" style={{ flex: "1.6 1.6 0", minWidth: 0 }}>
+          {showSkeleton ? (
+            <LogSkeleton />
+          ) : loadError && rows.length === 0 ? (
+            <div className="fr-card" style={card({ flex: 1.6 })}>
+              <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 12, padding: "22px 8px" }}>
+                <div style={{ fontFamily: BODY, fontSize: 13, color: "#ff9a8a" }}>Could not load the taco log.</div>
+                <button
+                  type="button"
+                  className="fr-pressable"
+                  onClick={() => void load()}
+                  style={{ border: "none", borderRadius: 9, cursor: "pointer", padding: "9px 18px", background: `linear-gradient(90deg,${ACCENT_PINK},${ACCENT_PURPLE})`, fontFamily: DISPLAY, fontSize: 14, color: "#fff" }}
+                >
+                  RETRY
+                </button>
+              </div>
             </div>
-          </div>
-        ) : (
-          <LogTable rows={sortedRows} sortKey={sortKey} sortDir={sortDir} onSort={onSort} highlightId={highlightId} onOpenDetail={setDetailRow} />
-        )}
+          ) : (
+            <LogTable rows={sortedRows} sortKey={sortKey} sortDir={sortDir} onSort={onSort} highlightId={highlightId} onOpenDetail={setDetailRow} />
+          )}
+        </div>
+
+        {/* Phone: one tappable card per taco → opens the shared detail/edit/photo sheet. */}
+        <div className="fr-only-narrow" style={{ flex: "1 1 auto", minWidth: 0 }}>
+          <EntryCardList
+            rows={sortedRows}
+            palette={TACO_DETAIL_PALETTE}
+            emoji="🌮"
+            title="THE LOG"
+            getType={(r) => r.taco_type}
+            photoUrlFor={photoUrlFor}
+            onOpen={(r) => setDetailRow(r)}
+            highlightId={highlightId}
+            note={showSkeleton ? "Loading log…" : loadError && rows.length === 0 ? "Couldn’t load — pull down to refresh." : null}
+            emptyText="No tacos logged yet. Log your first below. 🌮"
+          />
+        </div>
 
         <QuickLog onSubmit={handleSubmit} />
       </div>
@@ -972,6 +992,7 @@ export function TacosSection({ tacos }: TacosSectionProps) {
           row={{ ...detailRow, type: detailRow.taco_type }}
           apiBase="/api/tacos"
           typeKey="taco_type"
+          photoField="taco_id"
           typeLabel="TYPE"
           emoji="🌮"
           palette={TACO_DETAIL_PALETTE}

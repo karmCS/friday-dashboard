@@ -179,10 +179,22 @@ body {
   overflow-wrap: anywhere;
 }
 
+/* Breakpoint-swapped surfaces: the dense log table (wide) vs. the tappable card list (phone).
+   Both render; CSS shows exactly one. No JS breakpoint → no hydration mismatch. */
+.fr-only-narrow {
+  display: none;
+}
+
 /* Phone layout: stat strips go 2-up, side-by-side splits stack, top bar tightens.
    !important is required to beat the inline display:flex / fixed-width styles the
    Questism components set (this codebase is inline-styles-only, no Tailwind). */
 @media (max-width: 720px) {
+  .fr-only-wide {
+    display: none !important;
+  }
+  .fr-only-narrow {
+    display: block !important;
+  }
   .fr-kpis > * {
     /* Percentage basis, NOT calc(): iOS Safari mis-handles calc() inside the flex shorthand,
        which left the strip 4-up-squished instead of 2-up. 42% basis → exactly 2 per row. */
@@ -204,25 +216,25 @@ body {
   .fr-overview-inner {
     padding: 18px 15px 20px !important;
   }
-  /* The meta group is flex:none (won't shrink), so on a phone the sync stamp + status chip +
-     sign-out used to overflow the right edge (SIGN OUT clipped off-screen). Let the header wrap
-     and drop the whole meta group onto its own full-width second row, right-aligned. */
+  /* Compact single-row header. The verbose labels (back text, "ALL ONLINE" text, the sync
+     timestamp) are hidden so menu + title + status dot + sign-out fit one clean row. The live
+     signals a monitoring view must keep stay visible: the ◆ status dot (colored up/degraded)
+     and the amber STALE badge when the snapshot is >10min old. */
   .fr-topbar {
-    flex-wrap: wrap !important;
     padding: 11px 14px !important;
-    gap: 9px !important;
-  }
-  .fr-topbar-title {
-    font-size: 21px !important;
-  }
-  .fr-topbar-meta {
-    width: 100% !important;
-    justify-content: flex-end !important;
-    flex-wrap: wrap !important;
     gap: 10px !important;
   }
-  /* Sync stamp shrinks (not hidden) — it carries the only ">10min stale" signal, which a
-     monitoring dashboard must keep on phones. The status chip + sign-out still fit. */
+  .fr-topbar-title {
+    font-size: 20px !important;
+  }
+  .fr-topbar-meta {
+    gap: 10px !important;
+  }
+  .fr-back-label,
+  .fr-status-label,
+  .fr-sync-time {
+    display: none !important;
+  }
   .fr-sync {
     font-size: 10px !important;
   }

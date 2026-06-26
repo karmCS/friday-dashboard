@@ -9,16 +9,31 @@
  * injected so one component serves both sections. Portaled to <body> and focus-trapped.
  */
 
-import { CSSProperties, useState } from "react";
+import { CSSProperties, ChangeEvent, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 
 import { t, tabularNum, buttonReset } from "@/components/dashboard/tokens";
-import { useFocusTrap } from "@/components/dashboard/ui";
+import { useFocusTrap, srOnly } from "@/components/dashboard/ui";
 
 const PRICE_TIERS = ["$", "$$", "$$$"] as const;
 type PriceTier = (typeof PRICE_TIERS)[number];
 const PRICE_TIER_NAMES: Record<PriceTier, string> = { $: "Budget", $$: "Moderate", $$$: "Expensive" };
 const RATING_MAX = 10;
+
+// Photo constraints mirror the server (api/{cafes,tacos}/photo/route.ts). Kept inline so this
+// shared component stays decoupled from either section's photo helper.
+const PHOTO_ACCEPT = "image/jpeg,image/png,image/webp,image/gif,image/heic,image/heif";
+const PHOTO_HINT = "JPEG, PNG, WebP, GIF or HEIC · up to 8 MB";
+const PHOTO_MAX_BYTES = 8 * 1024 * 1024;
+const PHOTO_OK = new Set(["image/jpeg", "image/png", "image/webp", "image/gif", "image/heic", "image/heif"]);
+
+/** Client pre-flight for a picked image; returns a user-facing message or null when acceptable. */
+function validatePhoto(file: File): string | null {
+  if (!PHOTO_OK.has(file.type)) return "Use a JPEG, PNG, WebP, GIF, or HEIC image.";
+  if (file.size === 0) return "That image file is empty.";
+  if (file.size > PHOTO_MAX_BYTES) return "Image is over 8 MB — pick a smaller one.";
+  return null;
+}
 
 const DISPLAY = t.font.display;
 const BODY = t.font.body;
@@ -59,6 +74,8 @@ interface Props {
   apiBase: string;
   /** The server field name for the item: "taco_type" | "order_item". */
   typeKey: "taco_type" | "order_item";
+  /** Multipart id field for the photo endpoint (`${apiBase}/photo`): "taco_id" | "cafe_id". */
+  photoField: "taco_id" | "cafe_id";
   /** UI label for that field: "TYPE" | "ORDER". */
   typeLabel: string;
   emoji: string;
@@ -67,12 +84,32 @@ interface Props {
   onClose: (changed: boolean) => void;
 }
 
-export function EntryDetail({ row, apiBase, typeKey, typeLabel, emoji, palette: p, onClose }: Props): React.JSX.Element | null {
+export function EntryDetail({ row, apiBase, typeKey, photoField, typeLabel, emoji, palette: p, onClose }: Props): React.JSX.Element | null {
   const [editing, setEditing] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [imgFailed, setImgFailed] = useState(false);
+
+  // New photo picked while editing (replaces the existing one on save).
+  const [photoFile, setPhotoFile] = useState<File | null>(null);
+  const [photoPreview, setPhotoPreview] = useState<string | null>(null);
+  const [photoErr, setPhotoErr] = useState<string | null>(null);
+  const photoInputRef = useRef<HTMLInputElement>(null);
+  // Sole owner of preview-URL revocation: runs with the previous value on replace + on unmount.
+  useEffect(() => () => { if (photoPreview) URL.revokeObjectURL(photoPreview); }, [photoPreview]);
+
+  const onPickPhoto = (e: ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0] ?? null;
+    if (photoInputRef.current) photoInputRef.current.value = ""; // allow re-picking the same file
+    if (!file) return;
+    const msg = validatePhoto(file);
+    if (msg) { setPhotoErr(msg); return; }
+    setPhotoErr(null);
+    setImgFailed(false);
+    setPhotoFile(file);
+    setPhotoPreview(URL.createObjectURL(file)); // the [photoPreview] effect revokes the prior URL
+  };
 
   // Edit-form state (seeded from the row).
   const [place, setPlace] = useState(row.place);
@@ -87,7 +124,8 @@ export function EntryDetail({ row, apiBase, typeKey, typeLabel, emoji, palette: 
 
   const dialogRef = useFocusTrap<HTMLFormElement>(() => onClose(false));
 
-  const photoSrc = row.localPhotoUrl ?? (row.has_photo ? `${apiBase}/${row.id}/photo` : null);
+  const photoSrc = photoPreview ?? row.localPhotoUrl ?? (row.has_photo ? `${apiBase}/${row.id}/photo` : null);
+  const hasExistingPhoto = row.has_photo || row.localPhotoUrl != null;
   const where = [row.city, row.state].filter(Boolean).join(", ");
   const canSave = place.trim() !== "" && city.trim() !== "" && stateVal.trim() !== "" && typeVal.trim() !== "";
 
@@ -110,10 +148,19 @@ export function EntryDetail({ row, apiBase, typeKey, typeLabel, emoji, palette: 
         headers: { "content-type": "application/json" },
         body: JSON.stringify(body),
       });
-      if (!res.ok) throw new Error();
+      if (!res.ok) throw new Error("fields");
+      // If a new photo was picked, attach it in a second hop (same endpoint the quick-log uses,
+      // which replaces any existing photo). A failure here is reported but the fields are saved.
+      if (photoFile) {
+        const fd = new FormData();
+        fd.append(photoField, String(row.id));
+        fd.append("photo", photoFile);
+        const pres = await fetch(`${apiBase}/photo`, { method: "POST", body: fd });
+        if (!pres.ok) throw new Error("photo");
+      }
       onClose(true);
-    } catch {
-      setErr("Couldn’t save — try again.");
+    } catch (e) {
+      setErr(e instanceof Error && e.message === "photo" ? "Saved, but the photo didn’t upload — try again." : "Couldn’t save — try again.");
       setBusy(false);
     }
   };
@@ -185,36 +232,54 @@ export function EntryDetail({ row, apiBase, typeKey, typeLabel, emoji, palette: 
 
   // --- panes -----------------------------------------------------------------
   const photoPane = (
-    <div
-      style={{
-        flex: "1 1 320px",
-        minWidth: 240,
-        minHeight: 240,
-        borderRadius: 12,
-        overflow: "hidden",
-        background: "#000",
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "center",
-        boxShadow: `inset 0 0 0 1px ${p.frameBorder}`,
-      }}
-    >
-      {photoSrc && !imgFailed ? (
-        /* eslint-disable-next-line @next/next/no-img-element -- user upload served from our own API */
-        <img
-          src={photoSrc}
-          alt={`${row.place}`}
-          onError={() => setImgFailed(true)}
-          style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }}
-        />
-      ) : (
-        <div style={{ textAlign: "center", padding: 24 }}>
-          <div aria-hidden style={{ fontSize: 40, opacity: 0.5 }}>{emoji}</div>
-          <div style={{ fontFamily: BODY, fontWeight: 700, fontSize: 12, color: p.muted, marginTop: 8 }}>
-            {row.has_photo ? "Preview unavailable here" : "No photo"}
+    <div style={{ flex: "1 1 320px", minWidth: 240, display: "flex", flexDirection: "column", gap: 10 }}>
+      <div
+        style={{
+          width: "100%",
+          minHeight: 240,
+          borderRadius: 12,
+          overflow: "hidden",
+          background: "#000",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          boxShadow: `inset 0 0 0 1px ${p.frameBorder}`,
+        }}
+      >
+        {photoSrc && !imgFailed ? (
+          /* eslint-disable-next-line @next/next/no-img-element -- user upload served from our own API */
+          <img
+            src={photoSrc}
+            alt={`${row.place}`}
+            onError={() => setImgFailed(true)}
+            style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }}
+          />
+        ) : (
+          <div style={{ textAlign: "center", padding: 24 }}>
+            <div aria-hidden style={{ fontSize: 40, opacity: 0.5 }}>{emoji}</div>
+            <div style={{ fontFamily: BODY, fontWeight: 700, fontSize: 12, color: p.muted, marginTop: 8 }}>
+              {row.has_photo ? "Preview unavailable here" : "No photo"}
+            </div>
           </div>
+        )}
+      </div>
+
+      {editing ? (
+        <div>
+          <button
+            type="button"
+            className="fr-pressable"
+            onClick={() => photoInputRef.current?.click()}
+            style={{ ...ghostBtn(p.body, p.frameBorder), width: "100%", display: "flex", alignItems: "center", justifyContent: "center", gap: 8 }}
+          >
+            <span aria-hidden style={{ fontSize: 15 }}>📷</span>
+            {hasExistingPhoto || photoFile ? "REPLACE PHOTO" : "ADD PHOTO"}
+          </button>
+          <input ref={photoInputRef} type="file" accept={PHOTO_ACCEPT} onChange={onPickPhoto} tabIndex={-1} aria-hidden style={srOnly} />
+          <div style={{ marginTop: 6, fontFamily: BODY, fontWeight: 600, fontSize: 10, color: p.muted }}>{PHOTO_HINT}</div>
+          {photoErr ? <div role="alert" style={{ marginTop: 6, fontFamily: BODY, fontWeight: 700, fontSize: 11, color: t.down }}>{photoErr}</div> : null}
         </div>
-      )}
+      ) : null}
     </div>
   );
 

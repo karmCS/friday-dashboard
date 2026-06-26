@@ -62,8 +62,8 @@ export function TopBar({ title, showBack, onBack, onMenu, asOf, allUp, onLogout 
           ☰
         </button>
         {showBack && (
-          <button type="button" className="fr-pressable" onClick={onBack} style={iconBtn}>
-            ← OVERVIEW
+          <button type="button" className="fr-pressable" onClick={onBack} aria-label="Back to overview" style={iconBtn}>
+            ←<span className="fr-back-label">&nbsp;OVERVIEW</span>
           </button>
         )}
         <h1
@@ -87,7 +87,8 @@ export function TopBar({ title, showBack, onBack, onMenu, asOf, allUp, onLogout 
 
       <div className="fr-topbar-meta" style={{ display: "flex", alignItems: "center", gap: 16, flex: "none" }}>
         <span className="fr-sync" suppressHydrationWarning style={{ fontFamily: MONO, fontSize: 11, color: isStale ? t.amber : t.textMuted }}>
-          {isStale ? "STALE · " : ""}SYNC {formatSync(asOf)}
+          {isStale ? <span className="fr-sync-stale">STALE</span> : null}
+          <span className="fr-sync-time">{isStale ? " · " : ""}SYNC {formatSync(asOf)}</span>
         </span>
         <span
           role="status"
@@ -103,8 +104,8 @@ export function TopBar({ title, showBack, onBack, onMenu, asOf, allUp, onLogout 
             clipPath: t.clipCta,
           }}
         >
-          <span aria-hidden>◆ </span>
-          {allUp ? "ALL ONLINE" : "DEGRADED"}
+          <span aria-hidden>◆</span>
+          <span className="fr-status-label">&nbsp;{allUp ? "ALL ONLINE" : "DEGRADED"}</span>
         </span>
         <button type="button" className="fr-pressable" onClick={onLogout} aria-label="Sign out" style={iconBtn}>
           SIGN OUT
