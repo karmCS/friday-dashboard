@@ -173,14 +173,25 @@ body {
 .fr-kpis {
   flex-wrap: wrap;
 }
+/* Long place names (e.g. LAST SPOT "Better Buzz Coffee") break on word boundaries and,
+   if a single word is still too wide, mid-word — instead of overflowing the card. */
+.fr-kpi-value {
+  overflow-wrap: anywhere;
+}
 
 /* Phone layout: stat strips go 2-up, side-by-side splits stack, top bar tightens.
    !important is required to beat the inline display:flex / fixed-width styles the
    Questism components set (this codebase is inline-styles-only, no Tailwind). */
 @media (max-width: 720px) {
   .fr-kpis > * {
-    flex: 1 1 calc(50% - 7px) !important;
+    /* Percentage basis, NOT calc(): iOS Safari mis-handles calc() inside the flex shorthand,
+       which left the strip 4-up-squished instead of 2-up. 42% basis → exactly 2 per row. */
+    flex: 1 1 42% !important;
     min-width: 0 !important;
+  }
+  /* Giant display value shrinks so long place names fit a half-width card. */
+  .fr-kpi-value {
+    font-size: 30px !important;
   }
   .fr-split {
     flex-direction: column !important;
@@ -193,7 +204,11 @@ body {
   .fr-overview-inner {
     padding: 18px 15px 20px !important;
   }
+  /* The meta group is flex:none (won't shrink), so on a phone the sync stamp + status chip +
+     sign-out used to overflow the right edge (SIGN OUT clipped off-screen). Let the header wrap
+     and drop the whole meta group onto its own full-width second row, right-aligned. */
   .fr-topbar {
+    flex-wrap: wrap !important;
     padding: 11px 14px !important;
     gap: 9px !important;
   }
@@ -201,6 +216,9 @@ body {
     font-size: 21px !important;
   }
   .fr-topbar-meta {
+    width: 100% !important;
+    justify-content: flex-end !important;
+    flex-wrap: wrap !important;
     gap: 10px !important;
   }
   /* Sync stamp shrinks (not hidden) — it carries the only ">10min stale" signal, which a

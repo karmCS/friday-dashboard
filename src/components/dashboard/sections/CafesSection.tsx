@@ -242,7 +242,7 @@ function KpiCard({ label, value, sub, valueColor, subColor, flex = 1 }: {
   return (
     <div className="fr-card" style={card({ flex })}>
       <div style={kicker}>{label}</div>
-      <div style={{ fontFamily: DISPLAY, fontSize: 42, lineHeight: 1, color: valueColor, marginTop: 4, ...tabularNum }}>
+      <div className="fr-kpi-value" style={{ fontFamily: DISPLAY, fontSize: 42, lineHeight: 1, color: valueColor, marginTop: 4, ...tabularNum }}>
         {value}
       </div>
       <div style={{ fontFamily: BODY, fontWeight: 700, fontSize: 11, color: subColor, marginTop: 4 }}>
